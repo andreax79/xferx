@@ -31,12 +31,13 @@ from ..commons import (
     ASCII,
     IMAGE,
     READ_FILE_FULL,
+    TrackSector,
     dump_struct,
     filename_match,
     hex_dump,
 )
 from .commons import ProDOSFileInfo, decode_apple_single, encode_apple_single
-from .disk import SECTOR_SIZE, AppleDisk, TrackSector
+from .disk import SECTOR_SIZE, AppleDisk
 
 __all__ = [
     "AppleDOSFile",

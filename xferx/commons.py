@@ -33,12 +33,13 @@ __all__ = [
     "splitdrive",
     "swap_words",
     "word_to_bytes",
+    "TrackSector",
 ]
 
 import fnmatch
 import sys
+import typing as t
 from datetime import date
-from typing import Any, Dict, List, Optional, Tuple
 
 BLOCK_SIZE = 512
 BYTES_PER_LINE = 16
@@ -61,7 +62,7 @@ def word_to_bytes(val: int) -> bytes:
     return bytes([val % 256, val // 256])
 
 
-def splitdrive(path: str) -> Tuple[str, str]:
+def splitdrive(path: str) -> t.Tuple[str, str]:
     """
     Split a pathname into drive and path.
     """
@@ -72,7 +73,7 @@ def splitdrive(path: str) -> Tuple[str, str]:
         return (result[0].upper(), result[1])
 
 
-def date_to_rt11(val: Optional[date]) -> int:
+def date_to_rt11(val: t.Optional[date]) -> int:
     """
     Translate Python date to RT-11 date
     """
@@ -105,8 +106,8 @@ def hex_dump(data: bytes, bytes_per_line: int = BYTES_PER_LINE) -> None:
         sys.stdout.write(f"{i:08x}   {hex_str.ljust(3 * bytes_per_line)}  {ascii_str}\n")
 
 
-def dump_struct(d: Dict[str, Any], exclude: List[str] = [], include: List[str] = []) -> str:
-    result: List[str] = []
+def dump_struct(d: t.Dict[str, t.Any], exclude: t.List[str] = [], include: t.List[str] = []) -> str:
+    result: t.List[str] = []
     for k, v in d.items():
         if (type(v) in (int, str, bytes, list, bool) or k in include) and k not in exclude:
             if len(k) < 6:
@@ -117,7 +118,7 @@ def dump_struct(d: Dict[str, Any], exclude: List[str] = [], include: List[str] =
     return "\n".join(result)
 
 
-def filename_match(basename: str, pattern: Optional[str], wildcard: bool) -> bool:
+def filename_match(basename: str, pattern: t.Optional[str], wildcard: bool) -> bool:
     if not pattern:
         return True
     if wildcard:
@@ -150,8 +151,8 @@ except Exception:
 class PartialMatching:
 
     def __init__(self) -> None:
-        self.short: Dict[str, str] = {}  # short key => full key
-        self.full: Dict[str, str] = {}  # full key => short key
+        self.short: t.Dict[str, str] = {}  # short key => full key
+        self.full: t.Dict[str, str] = {}  # full key => short key
 
     def add(self, key: str) -> None:
         try:
@@ -163,7 +164,7 @@ class PartialMatching:
         self.full[full] = prefix
         self.short[prefix] = full
 
-    def get(self, key: str, default: Optional[str] = None) -> Optional[str]:
+    def get(self, key: str, default: t.Optional[str] = None) -> t.Optional[str]:
         try:
             return self.short[key]
         except KeyError:
@@ -172,3 +173,11 @@ class PartialMatching:
         if not matching_keys:
             return default
         return matching_keys[0][0]
+
+
+class TrackSector(t.NamedTuple):
+    track: int
+    sector: int
+
+    def __repr__(self) -> str:
+        return f"{self.track}/{self.sector}"

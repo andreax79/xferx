@@ -20,16 +20,14 @@
 
 import errno
 import os
-import typing as t
 from dataclasses import dataclass
 
 from ..abstract import AbstractFile
 from ..block import BlockDevice
-from ..commons import BLOCK_SIZE
+from ..commons import BLOCK_SIZE, TrackSector
 
 __all__ = [
     "AppleDisk",
-    "TrackSector",
 ]
 
 SECTOR_SIZE = 256  # Sector size in bytes
@@ -37,14 +35,6 @@ SECTORS_PER_TRACK = 16  # Number of sectors per track
 BLOCKS_PER_TRACK = SECTOR_SIZE * SECTORS_PER_TRACK // BLOCK_SIZE  # Number of blocks per track
 BYTES_PER_TRACK = BLOCKS_PER_TRACK * BLOCK_SIZE  # Number of bytes per track
 DOS_SECTOR_ORDER = [0, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 15]
-
-
-class TrackSector(t.NamedTuple):
-    track: int
-    sector: int
-
-    def __repr__(self) -> str:
-        return f"{self.track}/{self.sector}"
 
 
 @dataclass

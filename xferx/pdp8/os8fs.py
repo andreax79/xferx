@@ -358,6 +358,8 @@ class OS8DirectoryEntry(AbstractDirectoryEntry):
                 # When extra words are used, the first one is used
                 # to store the creation date
                 self.raw_creation_date = self.extra_words[0]
+            self.length = 999
+            print(self)
             length = words[self.segment.extra_words + 4 + position]
             self.length = 0o10000 - length if length else length
         else:  # Empty entry
@@ -993,6 +995,7 @@ class OS8Filesystem(AbstractFilesystem, BlockDevice12Bit):
         else:
             sys.stdout.write(f"Number of partitions:     {self.num_of_partitions}\n")
             sys.stdout.write(f"Size of each partition:   {self.partition_size}\n")
+            sys.stdout.write(f"Is RX01/RX02:             {'YES' if self.is_rx_12bit else 'NO'}\n")
             for partition_number in range(0, self.num_of_partitions):
                 partition = self.get_partition(partition_number)
                 sys.stdout.write(f"{partition}\n")
