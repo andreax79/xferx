@@ -28,8 +28,7 @@ from abc import ABC, abstractmethod
 from datetime import date, datetime, timedelta
 from functools import reduce
 
-from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
-from ..block import BlockDevice
+from ..abstract import AbstractBlockFilesystem, AbstractDirectoryEntry, AbstractFile
 from ..commons import (
     BLOCK_SIZE,
     READ_FILE_FULL,
@@ -37,6 +36,7 @@ from ..commons import (
     filename_match,
     swap_words,
 )
+from ..device.abstract import AbstractDevice
 
 __all__ = [
     "UNIXFile",
@@ -234,11 +234,11 @@ class UNIXInode(ABC):
         """
         Write inode
         """
-        self.fs.f.seek(BLOCK_SIZE * 2 + (self.inode_num - 1) * self.fs.inode_size)
+        self.fs.dev.f.seek(BLOCK_SIZE * 2 + (self.inode_num - 1) * self.fs.inode_size)
         buffer = bytearray(self.fs.inode_size)
         self.write_buffer(buffer)
-        self.fs.f.write(buffer)
-        self.fs.f.flush()
+        self.fs.dev.f.write(buffer)
+        self.fs.dev.f.flush()
 
     def write_buffer(self, buffer: bytearray, position: int = 0) -> None:
         """
@@ -398,7 +398,7 @@ class UNIXDirectory:
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
 
-class UNIXFilesystem(AbstractFilesystem, BlockDevice):
+class UNIXFilesystem(AbstractBlockFilesystem):
     """
     UNIX Filesystem
     """
@@ -420,15 +420,18 @@ class UNIXFilesystem(AbstractFilesystem, BlockDevice):
 
     @classmethod
     @abstractmethod
-    def mount(cls, file: "AbstractFile") -> "AbstractFilesystem":
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "UNIXFilesystem":
+        """
+        Mount the filesystem from a file or device
+        """
         pass
 
     def read_inode(self, inode_num: int) -> UNIXInode:
         """
         Read inode by number
         """
-        self.f.seek(BLOCK_SIZE * 2 + (inode_num - 1) * self.inode_size)
-        data = self.f.read(self.inode_size)
+        self.dev.f.seek(BLOCK_SIZE * 2 + (inode_num - 1) * self.inode_size)
+        data = self.dev.f.read(self.inode_size)
         return self.unix_inode_class.read(self, inode_num, data)
 
     def get_inode(self, path: str) -> t.Optional["UNIXInode"]:
@@ -618,16 +621,7 @@ class UNIXFilesystem(AbstractFilesystem, BlockDevice):
         """
         Get filesystem size in bytes
         """
-        return self.f.get_size()
-
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
-        """
-        Create an empty UNIX filesystem
-        """
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
-
-    def close(self) -> None:
-        self.f.close()
+        return self.dev.get_size()
 
     def chdir(self, fullname: str) -> bool:
         """

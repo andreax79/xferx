@@ -4,6 +4,13 @@ from datetime import date
 
 import pytest
 
+from xferx.device.rx import (
+    RX01_SECTOR_SIZE,
+    RX01_SIZE,
+    RX02_SECTOR_SIZE,
+    rx_extract_12bit_words,
+    rx_pack_12bit_words,
+)
 from xferx.pdp8.os8fs import (
     OS8_BLOCK_SIZE_BYTES,
     OS8DirectoryEntry,
@@ -15,13 +22,6 @@ from xferx.pdp8.os8fs import (
     from_bytes_to_12bit_words,
     os8_to_date,
     rad50_word12_to_asc,
-)
-from xferx.rx import (
-    RX01_SECTOR_SIZE,
-    RX01_SIZE,
-    RX02_SECTOR_SIZE,
-    rx_extract_12bit_words,
-    rx_pack_12bit_words,
 )
 from xferx.shell import Shell
 
@@ -158,6 +158,8 @@ def test_os8():
     shell.onecmd(f"mount t: /os8 {DSK}", batch=True)
     fs = shell.volumes.get('T')
     assert isinstance(fs, OS8Filesystem)
+    print(fs.dev.sector_size)
+    assert fs.dev.is_rx
 
     shell.onecmd("dir t:", batch=True)
     shell.onecmd("dir /uic t:", batch=True)

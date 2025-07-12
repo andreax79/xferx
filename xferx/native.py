@@ -30,6 +30,7 @@ from datetime import date, datetime
 
 from .abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
 from .commons import BLOCK_SIZE, READ_FILE_FULL
+from .device.abstract import AbstractDevice
 
 __all__ = [
     "NativeFile",
@@ -188,9 +189,10 @@ class NativeDirectoryEntry(AbstractDirectoryEntry):
 class NativeFilesystem(AbstractFilesystem):
 
     @classmethod
-    def mount(cls, file: "AbstractFile") -> "AbstractFilesystem":
-        assert isinstance(file, NativeFile)
-        return cls(base=file.filename)
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "NativeFilesystem":
+        if not isinstance(file_or_dev, NativeFile):
+            raise OSError(errno.EIO, "Not a native file")
+        return cls(base=file_or_dev.filename)
 
     def __init__(self, base: t.Optional[str] = None):
         self.base = base or "/"
@@ -335,9 +337,6 @@ class NativeFilesystem(AbstractFilesystem):
         """
         stat = os.statvfs(self.base)
         return stat.f_frsize * stat.f_blocks
-
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
-        pass
 
     def close(self) -> None:
         pass

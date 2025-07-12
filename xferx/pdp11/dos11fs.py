@@ -27,10 +27,11 @@ import sys
 import typing as t
 from datetime import date, timedelta
 
-from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
-from ..block import BlockDevice
+from ..abstract import AbstractDirectoryEntry, AbstractFile
 from ..commons import BLOCK_SIZE, READ_FILE_FULL, bytes_to_word, filename_match
+from ..device.abstract import AbstractDevice
 from ..uic import ANY_UIC, DEFAULT_UIC, UIC
+from .abstract import AbstractRXBlockFilesystem
 from .rad50 import asc_to_rad50_word, rad50_word_to_asc
 from .rt11fs import rt11_canonical_filename
 
@@ -936,7 +937,7 @@ class XXDPMasterFileDirectoryBlock(AbstractMasterFileDirectoryBlock):
         self.entries_list = [entry]
 
 
-class DOS11Filesystem(AbstractFilesystem, BlockDevice):
+class DOS11Filesystem(AbstractRXBlockFilesystem):
     """
     DOS-11/XXDP+ Filesystem
 
@@ -981,8 +982,8 @@ class DOS11Filesystem(AbstractFilesystem, BlockDevice):
     bitmap_start_block: int = 0
 
     @classmethod
-    def mount(cls, file: "AbstractFile", strict: bool = True) -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "DOS11Filesystem":
+        self = cls(file_or_dev)
         self.uic = DEFAULT_UIC
         if strict:
             # Check if the used blocks are in the bitmap
@@ -1313,13 +1314,7 @@ class DOS11Filesystem(AbstractFilesystem, BlockDevice):
         """
         Get filesystem size in bytes
         """
-        return self.f.get_size()
-
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
-
-    def close(self) -> None:
-        self.f.close()
+        return self.dev.get_size()
 
     def chdir(self, fullname: str) -> bool:
         """
@@ -1342,6 +1337,3 @@ class DOS11Filesystem(AbstractFilesystem, BlockDevice):
         Get the list of the supported file types
         """
         return list(FILE_TYPES.values())
-
-    def __str__(self) -> str:
-        return str(self.f)

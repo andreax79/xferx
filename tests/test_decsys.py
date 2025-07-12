@@ -20,13 +20,13 @@ class MockFilesytem(DECSysFilesystem):
     def __init__(self, t):
         self.t = t
 
-    def read_18bit_words_block(self, block_number):
+    def read_words_block(self, block_number):
         if block_number in self.t:
             return list(self.t[block_number])
         else:
             raise ValueError(f"Invalid block number {block_number}")
 
-    def write_18bit_words_block(self, block_number, words) -> None:
+    def write_words_block(self, block_number, words) -> None:
         self.t[block_number] = list(words)
 
 
@@ -93,9 +93,9 @@ def test_program_directory():
     directory = ProgramDirectory.read(fs)
     assert len(directory.entries) == 14
     assert directory.first_free_block == 157
-    fs.write_18bit_words_block(2, [0] * 256)
+    fs.write_words_block(2, [0] * 256)
     directory.write()
-    assert fs.read_18bit_words_block(2) == program_directory
+    assert fs.read_words_block(2) == program_directory
 
 
 def test_fiodec():

@@ -26,7 +26,7 @@ import sys
 import typing as t
 from datetime import date
 
-from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
+from ..abstract import AbstractDirectoryEntry, AbstractFile
 from ..commons import (
     ASCII,
     IMAGE,
@@ -36,8 +36,10 @@ from ..commons import (
     filename_match,
     hex_dump,
 )
+from ..device.abstract import AbstractDevice
+from .abstract import AbstractAppleDiskFilesystem
 from .commons import ProDOSFileInfo, decode_apple_single, encode_apple_single
-from .disk import SECTOR_SIZE, AppleDisk
+from .disk import SECTOR_SIZE
 
 __all__ = [
     "AppleDOSFile",
@@ -353,7 +355,7 @@ class AppleDOSVTOC:
         self = AppleDOSVTOC(fs)
         # Initialize the VTOC sector
         self.dos_type = DEFAULT_DOS_TYPE  # DOS type
-        self.catalog_address = TrackSector(VTOC_TRACK, fs.sectors_per_track - 1)
+        self.catalog_address = TrackSector(VTOC_TRACK, fs.dev.sectors_per_track - 1)
         self.dos_version = DEFAULT_DOS_VERSION  # DOS version
         self.reserved_1 = b"\0" * 2  # reserved
         self.volume_number = DEFAULT_VOLUME_NUMBER  # volume number
@@ -363,11 +365,11 @@ class AppleDOSVTOC:
         self.last_track_allocated = VTOC_TRACK  # last track allocated
         self.allocation_direction = 255  # allocation direction
         self.reserved_4 = b"\0" * 2  # reserved
-        self.number_of_tracks = fs.number_of_tracks  # number of tracks on disk
-        if fs.number_of_tracks > VTOC_MAX_TRACKS:
+        self.number_of_tracks = fs.dev.number_of_tracks  # number of tracks on disk
+        if fs.dev.number_of_tracks > VTOC_MAX_TRACKS:
             self.number_of_tracks = VTOC_MAX_TRACKS
-            fs.number_of_tracks = self.number_of_tracks
-        self.sectors_per_track = fs.sectors_per_track  # sectors per track
+            fs.dev.number_of_tracks = self.number_of_tracks
+        self.sectors_per_track = fs.dev.sectors_per_track  # sectors per track
         self.bytes_per_sector = SECTOR_SIZE  # bytes per sector
         # Initialize the bitmap
         b = ((1 << self.sectors_per_track) - 1) << (32 - self.sectors_per_track)
@@ -563,7 +565,7 @@ class AppleDOSCatalog:
         """
         self = cls(fs)
         self.catalog_addresses = [
-            TrackSector(VTOC_TRACK, sector) for sector in range(self.fs.sectors_per_track - 1, 0, -1)
+            TrackSector(VTOC_TRACK, sector) for sector in range(self.fs.dev.sectors_per_track - 1, 0, -1)
         ]
         self.directory_entries = [
             AppleDOSDirectoryEntry.create(self.fs)
@@ -901,7 +903,7 @@ class AppleDOSDirectoryEntry(AbstractDirectoryEntry):
         return str(self)
 
 
-class AppleDOSFilesystem(AbstractFilesystem, AppleDisk):
+class AppleDOSFilesystem(AbstractAppleDiskFilesystem):
     """
     Apple II DOS 3.x Filesystem
 
@@ -916,22 +918,19 @@ class AppleDOSFilesystem(AbstractFilesystem, AppleDisk):
     number_of_tracks: int  # Number of tracks on disk
     sectors_per_track: int  # Sectors per track
 
-    def __init__(self, file: "AbstractFile"):
-        super().__init__(file, rx_device_support=False)
-
     @classmethod
-    def mount(cls, file: "AbstractFile", strict: bool = True) -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "AppleDOSFilesystem":
+        self = cls(file_or_dev)
         vtoc: t.Optional[AppleDOSVTOC] = None
         # Read VTOC in DOS order
-        self.prodos_order = False
+        self.dev.prodos_order = False
         try:
             dos_vtoc = AppleDOSVTOC.read(self)
             dos_files = len(AppleDOSCatalog.read(self, dos_vtoc.catalog_address).directory_entries)
         except Exception:
             dos_vtoc = None
             dos_files = 0
-        self.prodos_order = True
+        self.dev.prodos_order = True
         # Read VTOC in ProDOS order
         try:
             prodos_vtoc = AppleDOSVTOC.read(self)
@@ -941,10 +940,10 @@ class AppleDOSFilesystem(AbstractFilesystem, AppleDisk):
             prodos_files = 0
         # Choose the order with the most files
         if prodos_files > dos_files:
-            self.prodos_order = True
+            self.dev.prodos_order = True
             vtoc: AppleDOSVTOC = prodos_vtoc  # type: ignore
         else:
-            self.prodos_order = False
+            self.dev.prodos_order = False
             vtoc = dos_vtoc  # type: ignore
         if vtoc is None or not vtoc.is_valid:
             raise OSError(errno.EIO, os.strerror(errno.EIO))
@@ -1171,12 +1170,18 @@ class AppleDOSFilesystem(AbstractFilesystem, AppleDisk):
         """
         Get filesystem size in bytes
         """
-        return self.f.get_size()
+        return self.dev.get_size()
 
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
+    @classmethod
+    def initialize(
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        **kwargs: t.Union[bool, str],
+    ) -> "AppleDOSFilesystem":
         """
         Initialize the filesystem
         """
+        self = cls(file_or_dev)
         vtoc = AppleDOSVTOC.create(self)
         catalog = AppleDOSCatalog.create(self, vtoc)
         catalog.write()
@@ -1184,9 +1189,7 @@ class AppleDOSFilesystem(AbstractFilesystem, AppleDisk):
         self.catalog_address = vtoc.catalog_address
         self.number_of_tracks = vtoc.number_of_tracks
         self.sectors_per_track = vtoc.sectors_per_track
-
-    def close(self) -> None:
-        self.f.close()
+        return self
 
     def get_pwd(self) -> str:
         return ""
@@ -1196,6 +1199,3 @@ class AppleDOSFilesystem(AbstractFilesystem, AppleDisk):
         Get the list of the supported file types
         """
         return list(FILE_TYPES.values())
-
-    def __str__(self) -> str:
-        return str(self.f)

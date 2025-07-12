@@ -28,8 +28,7 @@ import sys
 import typing as t
 from datetime import date, datetime, timedelta
 
-from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
-from ..block import BlockDevice
+from ..abstract import AbstractBlockFilesystem, AbstractDirectoryEntry, AbstractFile
 from ..commons import (
     ASCII,
     BLOCK_SIZE,
@@ -40,6 +39,7 @@ from ..commons import (
     filename_match,
     word_to_bytes,
 )
+from ..device.abstract import AbstractDevice
 from ..unix.commons import unix_join, unix_split
 
 __all__ = [
@@ -1327,7 +1327,7 @@ class DiskInformationBlock:
         )
 
 
-class DGDOSFilesystem(AbstractFilesystem, BlockDevice):
+class DGDOSFilesystem(AbstractBlockFilesystem):
     """
     DGDOS Filesystem
 
@@ -1433,8 +1433,8 @@ class DGDOSFilesystem(AbstractFilesystem, BlockDevice):
         return False
 
     @classmethod
-    def mount(cls, file: "AbstractFile", strict: bool = True) -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "DGDOSFilesystem":
+        self = cls(file_or_dev)
         # Read the Disk Information Block
         disk_id = DiskInformationBlock.read(self)
         if disk_id.revision > 16:
@@ -1701,13 +1701,7 @@ class DGDOSFilesystem(AbstractFilesystem, BlockDevice):
         """
         Get filesystem size in bytes
         """
-        return self.f.get_size()
-
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
-
-    def close(self) -> None:
-        self.f.close()
+        return self.dev.get_size()
 
     def chdir(self, fullname: str) -> bool:
         """
@@ -1733,6 +1727,3 @@ class DGDOSFilesystem(AbstractFilesystem, BlockDevice):
         Get the list of the supported file types
         """
         return list(FILE_TYPES.values())
-
-    def __str__(self) -> str:
-        return str(self.f)

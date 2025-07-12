@@ -28,8 +28,9 @@ from abc import abstractmethod
 from datetime import date, datetime
 
 from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
-from ..block import BlockDevice12Bit
 from ..commons import ASCII, BLOCK_SIZE, IMAGE, READ_FILE_FULL, filename_match
+from ..device.abstract import AbstractDevice
+from ..device.block_12bit import BlockDevice12Bit, RXBlockDevice12Bit
 from ..uic import ANY_GROUP, ANY_USER, UIC
 from .os8fs import oct_dump
 
@@ -358,7 +359,7 @@ class TSS8File(AbstractFile):
         blocks = list(self.entry.blocks())[block_number : block_number + number_of_blocks]
         # Read the blocks
         for disk_block_number in blocks:
-            words = self.entry.ufd.fs.read_12bit_words_block(disk_block_number)
+            words = self.entry.ufd.fs.read_words_block(disk_block_number)
             t = from_12bit_words_to_bytes(words, self.file_mode)
             data.extend(t)
         return bytes(data)
@@ -386,7 +387,7 @@ class TSS8File(AbstractFile):
         for i, disk_block_number in enumerate(blocks):
             block_words = words[i * WORDS_PER_BLOCK : (i + 1) * WORDS_PER_BLOCK]
             block_words.extend([0] * (WORDS_PER_BLOCK - len(block_words)))
-            self.entry.ufd.fs.write_12bit_words_block(disk_block_number, block_words)
+            self.entry.ufd.fs.write_words_block(disk_block_number, block_words)
 
     def get_size(self) -> int:
         """
@@ -957,13 +958,13 @@ class AbstractFileDirectory:
     def read_file(self, retrieval_pointer: int) -> t.List[int]:
         result = []
         for block in self.retrieval_blocks(retrieval_pointer):
-            result += self.fs.read_12bit_words_block(block)
+            result += self.fs.read_words_block(block)
         return result
 
     def write_file(self, retrieval_pointer: int, words: t.List[int]) -> None:
         for i, block in enumerate(self.retrieval_blocks(retrieval_pointer)):
             tmp = words[i * WORDS_PER_BLOCK : (i + 1) * WORDS_PER_BLOCK]
-            self.fs.write_12bit_words_block(block, tmp)
+            self.fs.write_words_block(block, tmp)
 
     @abstractmethod
     def write(self) -> None:
@@ -1031,7 +1032,7 @@ class MasterFileDirectory(AbstractFileDirectory):
         self.words[entry.retrieval_pointer : entry.retrieval_pointer + ENTRY_SIZE] = [0, block, 0, 0, 0, 0, 0, 0]
 
         # Write an empty block for the UFD
-        self.fs.write_12bit_words_block(block - 1 + self.fs.mfd_block, [0] * WORDS_PER_BLOCK)
+        self.fs.write_words_block(block - 1 + self.fs.mfd_block, [0] * WORDS_PER_BLOCK)
 
         # Write the entry to the MFD
         self.write()
@@ -1336,7 +1337,7 @@ class StorageAllocationTable:
         return isinstance(other, StorageAllocationTable) and self.bitmaps == other.bitmaps  # type: ignore
 
 
-class TSS8Filesystem(AbstractFilesystem, BlockDevice12Bit):
+class TSS8Filesystem(AbstractFilesystem):
     """
     TSS/8 Filesystem
 
@@ -1362,14 +1363,26 @@ class TSS8Filesystem(AbstractFilesystem, BlockDevice12Bit):
 
     fs_name = "tss8"
     fs_description = "PDP-8 TSS/8"
+    dev: BlockDevice12Bit
 
     users: int  # Number of users
     mfd_block: int  # Block number of the Master File Directory
     ppn: PPN = DEFAULT_PPN
 
+    def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"]):
+        if isinstance(file_or_device, AbstractFile):
+            self.dev = RXBlockDevice12Bit(file_or_device)
+        elif isinstance(file_or_device, BlockDevice12Bit):
+            self.dev = file_or_device
+        else:
+            raise OSError(errno.EIO, f"Invalid device type for {self.fs_description} filesystem")
+
     @classmethod
-    def mount(cls, file: "AbstractFile") -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "TSS8Filesystem":
+        """
+        Mount the TSS/8 filesystem from a file
+        """
+        self = cls(file_or_dev)
         self.users, self.mfd_block = self.guess_users()
         # self.users = 20  # Default number of users
         # self.mfd_block = MONITOR_SIZE + BLOCKS_PER_TRACK * self.users
@@ -1379,7 +1392,7 @@ class TSS8Filesystem(AbstractFilesystem, BlockDevice12Bit):
         for users in range(8, 32):
             block_number = MONITOR_SIZE + BLOCKS_PER_TRACK * users
             # block_number = (MONITOR_SIZE + 4 * users) * 4
-            words = self.read_12bit_words_block(block_number)
+            words = self.read_words_block(block_number)
             # The first 8-word block of the UFD is a dummy block.
             # It contains all zeros except for a pointer to the next block
             if words[UFD_NEXT_POS] != 0o10:  # Link to next block
@@ -1393,13 +1406,29 @@ class TSS8Filesystem(AbstractFilesystem, BlockDevice12Bit):
             return users, block_number
         raise OSError(errno.EIO, os.strerror(errno.EIO), "No valid MFD found")
 
+    def read_words_block(self, block_number: int) -> t.List[int]:
+        """
+        Read a block as 256 12bit words
+        """
+        return self.dev.read_words_block(block_number)
+
+    def write_words_block(
+        self,
+        block_number: int,
+        words: t.List[int],
+    ) -> None:
+        """
+        Write 256 12bit words as a block
+        """
+        self.dev.write_words_block(block_number, words)
+
     def read_12bit_words_track(self, first_block_number: int) -> t.List[int]:
         """
         Read a track of 12-bit words
         """
         words = []
         for i in range(0, BLOCKS_PER_TRACK):
-            words += self.read_12bit_words_block(first_block_number + i)
+            words += self.read_words_block(first_block_number + i)
         return words
 
     def write_12bit_words_track(self, first_block_number: int, words: t.List[int]) -> None:
@@ -1408,7 +1437,7 @@ class TSS8Filesystem(AbstractFilesystem, BlockDevice12Bit):
         """
         for i in range(0, BLOCKS_PER_TRACK):
             tmp = words[i * WORDS_PER_BLOCK : (i + 1) * WORDS_PER_BLOCK]
-            self.write_12bit_words_block(first_block_number + i, tmp)
+            self.write_words_block(first_block_number + i, tmp)
 
     def read_mfd_entries(
         self,
@@ -1638,7 +1667,7 @@ class TSS8Filesystem(AbstractFilesystem, BlockDevice12Bit):
                 end = entry.get_length() - 1
             blocks = list(entry.blocks())[start : end + 1]
             for i, block_number in enumerate(blocks):
-                words = self.read_12bit_words_block(block_number)
+                words = self.read_words_block(block_number)
                 sys.stdout.write(f"\nBLOCK NUMBER   {i:08}\n")
                 oct_dump(words)
         else:
@@ -1649,14 +1678,18 @@ class TSS8Filesystem(AbstractFilesystem, BlockDevice12Bit):
             elif end is None:  # one single block
                 end = start
             for block_number in range(start, end + 1):
-                words = self.read_12bit_words_block(block_number)
+                words = self.read_words_block(block_number)
                 sys.stdout.write(f"\nBLOCK NUMBER   {block_number:08}\n")
                 oct_dump(words)
 
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
+    @classmethod
+    def initialize(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "TSS8Filesystem":
         """
         Create an empty TSS/8 filesystem
         """
+        self = cls(file_or_dev)
         self.users = 20  # Default number of users
         self.mfd_block = MONITOR_SIZE + BLOCKS_PER_TRACK * self.users
 
@@ -1676,15 +1709,13 @@ class TSS8Filesystem(AbstractFilesystem, BlockDevice12Bit):
         mfd.create_ufd(ppn=PPN(0, 1), password="SYSTEM")
         mfd.create_ufd(ppn=PPN(0, 2), password="LIBRARY")
         mfd.create_ufd(ppn=PPN(0, 3), password="OPERATOR")
+        return self
 
     def get_size(self) -> int:
         """
         Get filesystem size in bytes
         """
-        return self.f.get_size()
+        return self.dev.get_size()
 
     def close(self) -> None:
-        self.f.close()
-
-    def __str__(self) -> str:
-        return str(self.f)
+        self.dev.close()

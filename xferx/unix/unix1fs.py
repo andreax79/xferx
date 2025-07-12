@@ -22,8 +22,9 @@ import io
 import struct
 import typing as t
 
-from ..abstract import AbstractFile, AbstractFilesystem
+from ..abstract import AbstractFile
 from ..commons import swap_words
+from ..device.abstract import AbstractDevice
 from .commons import (
     Bitmap,
     InodeBitmap,
@@ -227,8 +228,8 @@ class UNIX1Filesystem(UNIXFilesystem):
     inode_bitmap_size: int  # Size of i-node bitmap
 
     @classmethod
-    def mount(cls, file: "AbstractFile") -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "UNIX1Filesystem":
+        self = cls(file_or_dev)
         self.pwd = "/"
         self.read_superblock()
         return self

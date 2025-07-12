@@ -26,9 +26,10 @@ import sys
 import typing as t
 from datetime import date
 
-from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
-from ..block import BlockDevice
+from ..abstract import AbstractDirectoryEntry, AbstractFile
 from ..commons import ASCII, BLOCK_SIZE, IMAGE, READ_FILE_FULL, filename_match
+from ..device.abstract import AbstractDevice
+from .abstract import AbstractRXBlockFilesystem
 
 __all__ = [
     "SOLOFile",
@@ -772,7 +773,7 @@ class SOLOCatalogPage:
         return str(self)
 
 
-class SOLOFilesystem(AbstractFilesystem, BlockDevice):
+class SOLOFilesystem(AbstractRXBlockFilesystem):
     """
     SOLO Filesystem
 
@@ -805,29 +806,14 @@ class SOLOFilesystem(AbstractFilesystem, BlockDevice):
     catalog_length: int
 
     @classmethod
-    def mount(cls, file: "AbstractFile", strict: bool = True) -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "SOLOFilesystem":
+        self = cls(file_or_dev)
         # Get catalog length
         buffer = self.read_block(CAT_ADDR)
         self.catalog_length = struct.unpack_from("<H", buffer, 0)[0]
         if self.catalog_length != 15:
             raise OSError(errno.EIO, "Invalid catalog length")
         return self
-
-    def read_block(
-        self,
-        block_number: int,
-        number_of_blocks: int = 1,
-    ) -> bytes:
-        return self.f.read_block(block_number, number_of_blocks)
-
-    def write_block(
-        self,
-        buffer: bytes,
-        block_number: int,
-        number_of_blocks: int = 1,
-    ) -> None:
-        self.f.write_block(buffer, block_number, number_of_blocks)
 
     def read_page_map(self, block_number: int) -> t.List[int]:
         """
@@ -1039,9 +1025,6 @@ class SOLOFilesystem(AbstractFilesystem, BlockDevice):
         self.update_searchlength(new_entry.hash_key, delta=+1)
         return new_entry
 
-    def isdir(self, fullname: str) -> bool:
-        return False
-
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         files = 0
         blocks = 0
@@ -1086,9 +1069,13 @@ class SOLOFilesystem(AbstractFilesystem, BlockDevice):
         """
         Get filesystem size in bytes
         """
-        return self.f.get_size()
+        return self.dev.get_size()
 
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
+    @classmethod
+    def initialize(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "SOLOFilesystem":
+        self = cls(file_or_dev)
         # Zero disk
         empty_block = b"\0" * BLOCK_SIZE
         for block_number in range(0, DISK_SIZE):
@@ -1111,21 +1098,10 @@ class SOLOFilesystem(AbstractFilesystem, BlockDevice):
             catalog_page.write()
         # Create NEXT
         self.create_file(fullname="NEXT", number_of_blocks=255, file_type="SCRATCH", protected=True)
-
-    def close(self) -> None:
-        self.f.close()
-
-    def chdir(self, fullname: str) -> bool:
-        return False
-
-    def get_pwd(self) -> str:
-        return ""
+        return self
 
     def get_types(self) -> t.List[str]:
         """
         Get the list of the supported file types
         """
         return list(FILE_TYPES.values())
-
-    def __str__(self) -> str:
-        return str(self.f)

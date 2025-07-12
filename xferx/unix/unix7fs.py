@@ -22,8 +22,9 @@ import io
 import struct
 import typing as t
 
-from ..abstract import AbstractFile, AbstractFilesystem
+from ..abstract import AbstractFile
 from ..commons import BLOCK_SIZE, swap_words
+from ..device.abstract import AbstractDevice
 from .commons import UNIXFilesystem, UNIXInode, format_mode, iterate_long, l3tol
 from .unix4fs import (
     V4_RGRP,
@@ -206,8 +207,8 @@ class UNIX7Filesystem(UNIXFilesystem):
     unix_inode_class = UNIXInode7
 
     @classmethod
-    def mount(cls, file: "AbstractFile") -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "UNIX7Filesystem":
+        self = cls(file_or_dev)
         self.pwd = "/"
         self.read_superblock()
         return self

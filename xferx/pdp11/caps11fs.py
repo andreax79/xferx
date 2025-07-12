@@ -28,7 +28,8 @@ from datetime import date
 
 from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
 from ..commons import BLOCK_SIZE, READ_FILE_FULL, filename_match
-from ..tape import Tape
+from ..device.abstract import AbstractDevice
+from ..device.tape import Tape
 from .rt11fs import rt11_canonical_filename
 
 __all__ = [
@@ -112,8 +113,8 @@ class CAPS11File(AbstractFile):
         self.entry = entry
         self.closed = False
         self.size = entry.size
-        entry.fs.tape_seek(entry.tape_pos)
-        self.content = entry.fs.tape_read_file()[HEADER_RECORD_SIZE + entry.continued :]
+        entry.fs.dev.tape_seek(entry.tape_pos)
+        self.content = entry.fs.dev.tape_read_file()[HEADER_RECORD_SIZE + entry.continued :]
 
     def read_block(
         self,
@@ -292,10 +293,10 @@ class CAPS11DirectoryEntry(AbstractDirectoryEntry):
             self.version,
             self.unused,
         )
-        self.fs.tape_seek(self.tape_pos)
-        self.fs.tape_write_forward(buffer)
+        self.fs.dev.tape_seek(self.tape_pos)
+        self.fs.dev.tape_write_forward(buffer)
         if skip_file:
-            self.fs.tape_skip_file()
+            self.fs.dev.tape_skip_file()
         return True
 
     def get_length(self) -> int:
@@ -379,7 +380,7 @@ class CAPS11DirectoryEntry(AbstractDirectoryEntry):
         return str(self)
 
 
-class CAPS11Filesystem(AbstractFilesystem, Tape):
+class CAPS11Filesystem(AbstractFilesystem):
     """
     CAPS-11 Filesystem
 
@@ -402,10 +403,19 @@ class CAPS11Filesystem(AbstractFilesystem, Tape):
     fs_name = "caps11"
     fs_description = "PDP-11 CAPS-11"
     caps8 = False  # Is CAPS-8 ?
+    dev: Tape
+
+    def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"]):
+        if isinstance(file_or_device, AbstractFile):
+            self.dev = Tape(file_or_device)
+        elif isinstance(file_or_device, Tape):
+            self.dev = file_or_device
+        else:
+            raise OSError(errno.EIO, f"Invalid device type for {self.fs_description} filesystem")
 
     @classmethod
-    def mount(cls, file: "AbstractFile", strict: bool = True) -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "AbstractFilesystem":
+        self = cls(file_or_dev)
         if strict:
             for entry in self.read_file_headers(include_eot=False):
                 if not entry.is_sentinel_file and entry.version != 0:
@@ -416,12 +426,12 @@ class CAPS11Filesystem(AbstractFilesystem, Tape):
 
     def read_file_headers(self, include_eot: bool = False) -> t.Iterator["CAPS11DirectoryEntry"]:
         """Read file headers"""
-        self.tape_rewind()
+        self.dev.tape_rewind()
         try:
             file_number = 0
             while True:
-                tape_pos = self.tape_pos
-                header, size = self.tape_read_header()
+                tape_pos = self.dev.tape_pos
+                header, size = self.dev.tape_read_header()
                 if header:
                     file_number += 1
                     entry = CAPS11DirectoryEntry.read(self, header, file_number, tape_pos, size)
@@ -495,8 +505,8 @@ class CAPS11Filesystem(AbstractFilesystem, Tape):
             if (not entry.is_sentinel_file) and entry.record_type != FILE_TYPE_BAD:
                 break
             tape_pos = entry.tape_pos
-        self.tape_seek(tape_pos)
-        self.f.truncate(tape_pos)
+        self.dev.tape_seek(tape_pos)
+        self.dev.tape_truncate(tape_pos)
         # Create the new directory entry
         filename, extension = fullname.split(".", 1)
         entry = CAPS11DirectoryEntry.new(self, 0, tape_pos, filename, extension, creation_date)
@@ -508,17 +518,14 @@ class CAPS11Filesystem(AbstractFilesystem, Tape):
                 record = content[i * RECORD_SIZE : (i + 1) * RECORD_SIZE]
                 if len(record) < RECORD_SIZE:
                     record += b"\0" * (RECORD_SIZE - len(record))
-                self.tape_write_forward(record)
+                self.dev.tape_write_forward(record)
             else:
-                self.tape_write_forward(empty_record)
+                self.dev.tape_write_forward(empty_record)
         # Write tape mark
-        self.tape_write_mark()
+        self.dev.tape_write_mark()
         # Write the sentinel file
         self.write_sentinel_file()
         return entry
-
-    def isdir(self, fullname: str) -> bool:
-        return False
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         if not options.get("brief"):
@@ -563,38 +570,34 @@ class CAPS11Filesystem(AbstractFilesystem, Tape):
         """
         Get filesystem size in bytes
         """
-        return self.f.get_size()
+        return self.dev.get_size()
 
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
+    @classmethod
+    def initialize(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "CAPS11Filesystem":
         """
         Initialize the filesystem
         """
-        self.tape_rewind()
-        self.tape_write_mark()
+        self = cls(file_or_dev)
+        self.dev.tape_rewind()
+        self.dev.tape_write_mark()
         self.write_sentinel_file()
+        return self
 
     def write_sentinel_file(self) -> None:
         """
         Write the sentinel file at the current tape position
         The sentinel file is the last file on a tape
         """
-        self.tape_write_forward(SENTINEL_FILE)
-        self.f.truncate(self.tape_pos)
+        self.dev.tape_write_forward(SENTINEL_FILE)
+        self.dev.tape_truncate()
 
     def close(self) -> None:
-        self.f.close()
-
-    def chdir(self, fullname: str) -> bool:
-        return False
-
-    def get_pwd(self) -> str:
-        return ""
+        self.dev.close()
 
     def get_types(self) -> t.List[str]:
         """
         Get the list of the supported file types
         """
         return list(STANDARD_FILE_TYPES.values())
-
-    def __str__(self) -> str:
-        return str(self.f)

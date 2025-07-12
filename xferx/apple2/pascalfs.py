@@ -26,9 +26,10 @@ import sys
 import typing as t
 from datetime import date
 
-from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
+from ..abstract import AbstractDirectoryEntry, AbstractFile
 from ..commons import BLOCK_SIZE, READ_FILE_FULL, dump_struct, filename_match
-from .disk import AppleDisk
+from ..device.abstract import AbstractDevice
+from .abstract import AbstractAppleDiskFilesystem
 
 __all__ = [
     "PascalFile",
@@ -539,7 +540,7 @@ class PascalDirectoryEntry(AbstractDirectoryEntry):
         return str(self)
 
 
-class PascalFilesystem(AbstractFilesystem, AppleDisk):
+class PascalFilesystem(AbstractAppleDiskFilesystem):
     """
     Apple II Pascal Filesystem
     """
@@ -549,16 +550,13 @@ class PascalFilesystem(AbstractFilesystem, AppleDisk):
 
     volume_name: str = ""  # Volume name
 
-    def __init__(self, file: "AbstractFile"):
-        super().__init__(file, rx_device_support=False)
-
     @classmethod
-    def mount(cls, file: "AbstractFile", strict: bool = True) -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "PascalFilesystem":
+        self = cls(file_or_dev)
         # Read volume dir
         volume_dir = VolumeDirectory.read(self)
         if not volume_dir.volume_name:
-            self.prodos_order = True
+            self.dev.prodos_order = True
             volume_dir = VolumeDirectory.read(self)
             if not volume_dir.volume_name:
                 raise OSError(errno.EIO, os.strerror(errno.EIO))
@@ -726,12 +724,18 @@ class PascalFilesystem(AbstractFilesystem, AppleDisk):
         """
         Get filesystem size in bytes
         """
-        return self.f.get_size()
+        return self.dev.get_size()
 
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
+    @classmethod
+    def initialize(
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        **kwargs: t.Union[bool, str],
+    ) -> "PascalFilesystem":
         """
         Initialize the filesystem
         """
+        self = cls(file_or_dev)
         try:
             volume_name = kwargs["name"].strip().upper() or DEFAULT_VOLUME_NAME  # type: ignore
         except Exception:
@@ -741,16 +745,14 @@ class PascalFilesystem(AbstractFilesystem, AppleDisk):
         volume_dir.following_block = DIR_BLOCK + DIR_SIZE
         volume_dir.raw_file_type = 0
         volume_dir.volume_name = volume_name
-        volume_dir.number_of_blocks = self.f.get_size() // BLOCK_SIZE
+        volume_dir.number_of_blocks = self.dev.get_size() // BLOCK_SIZE
         volume_dir.number_of_files = 0
         volume_dir.last_access_time = 0
         volume_dir.raw_most_recently_date = date_to_pascal(date.today())
         volume_dir.directory_entries = [PascalDirectoryEntry(self, 0, 0) for _ in range(MAX_DIR_ENTRIES)]
         volume_dir.write()
         self.volume_name = volume_name
-
-    def close(self) -> None:
-        self.f.close()
+        return self
 
     def get_pwd(self) -> str:
         return ""
@@ -760,6 +762,3 @@ class PascalFilesystem(AbstractFilesystem, AppleDisk):
         Get the list of the supported file types
         """
         return list(FILE_TYPES.values())
-
-    def __str__(self) -> str:
-        return str(self.f)

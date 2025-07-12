@@ -23,12 +23,10 @@ import os
 from dataclasses import dataclass
 
 from ..abstract import AbstractFile
-from ..block import BlockDevice
 from ..commons import BLOCK_SIZE, TrackSector
+from ..device.block import BlockDevice
 
-__all__ = [
-    "AppleDisk",
-]
+__all__ = ["AppleDisk"]
 
 SECTOR_SIZE = 256  # Sector size in bytes
 SECTORS_PER_TRACK = 16  # Number of sectors per track
@@ -81,8 +79,8 @@ class AppleDisk(BlockDevice):
     sectors_per_track: int = SECTORS_PER_TRACK
     number_of_tracks: int = 0
 
-    def __init__(self, file: "AbstractFile", rx_device_support: bool = False):
-        super().__init__(file, rx_device_support)
+    def __init__(self, file: "AbstractFile"):
+        super().__init__(file)
         # Determine the number of sectors per track
         try:
             floppy_size = FloppySize.from_size(file.get_size())

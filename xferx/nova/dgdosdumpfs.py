@@ -27,6 +27,7 @@ from datetime import date, datetime
 
 from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
 from ..commons import ASCII, IMAGE, READ_FILE_FULL, dump_struct, filename_match
+from ..device.abstract import AbstractDevice
 from ..unix.commons import unix_join, unix_split
 from .dgdosfs import (
     ATCHA,
@@ -510,8 +511,12 @@ class DGDOSDumpFilesystem(AbstractFilesystem):
         return self.f.read_block(block_number, number_of_blocks)
 
     @classmethod
-    def mount(cls, file: "AbstractFile", strict: bool = True) -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True
+    ) -> "DGDOSDumpFilesystem":
+        if not isinstance(file_or_dev, AbstractFile):
+            raise OSError(errno.EIO, "Not a file")
+        self = cls(file_or_dev)
         if strict:
             self.f.seek(0)
             if not self.read_byte() == NAME_BLOCK_ID:
@@ -738,7 +743,11 @@ class DGDOSDumpFilesystem(AbstractFilesystem):
         """
         return self.f.get_size()
 
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
+    @classmethod
+    def initialize(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "AbstractFilesystem":
+        """Initialize the filesystem"""
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
     def close(self) -> None:

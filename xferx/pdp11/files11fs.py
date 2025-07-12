@@ -26,8 +26,7 @@ import typing as t
 from dataclasses import dataclass
 from datetime import date, datetime
 
-from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
-from ..block import BlockDevice
+from ..abstract import AbstractDirectoryEntry, AbstractFile
 from ..commons import (
     BLOCK_SIZE,
     READ_FILE_FULL,
@@ -36,7 +35,9 @@ from ..commons import (
     filename_match,
     swap_words,
 )
+from ..device.abstract import AbstractDevice
 from ..uic import ANY_GROUP, ANY_USER, DEFAULT_UIC, UIC
+from .abstract import AbstractRXBlockFilesystem
 from .dos11fs import dos11_split_fullname
 from .rad50 import asc2rad, rad2asc, rad50_word_to_asc
 
@@ -497,7 +498,7 @@ class Files11DirectoryEntry(AbstractDirectoryEntry):
         return f"File ID {'(' + self.file_id + ')':16} Name: {self.basename:12} Ver: {self.fver} FCHA: {self.header.fcha:04x} RTYP: {self.header.rtyp:1} Length: {self.header.length:9}"
 
 
-class Files11Filesystem(AbstractFilesystem, BlockDevice):
+class Files11Filesystem(AbstractRXBlockFilesystem):
     """
     Files-11 Filesystem
     """
@@ -532,8 +533,8 @@ class Files11Filesystem(AbstractFilesystem, BlockDevice):
     chk2: int  #     2 bytes  Second Checksum
 
     @classmethod
-    def mount(cls, file: "AbstractFile", strict: bool = True) -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "Files11Filesystem":
+        self = cls(file_or_dev)
         self.uic = DEFAULT_UIC
         self.read_home()
         if strict:
@@ -709,9 +710,6 @@ class Files11Filesystem(AbstractFilesystem, BlockDevice):
     ) -> t.Optional[Files11DirectoryEntry]:
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
-    def isdir(self, fullname: str) -> bool:
-        return False
-
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         if options.get("uic"):
             # Listing of all UIC
@@ -776,13 +774,7 @@ class Files11Filesystem(AbstractFilesystem, BlockDevice):
         """
         Get filesystem size in bytes
         """
-        return self.f.get_size()
-
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
-
-    def close(self) -> None:
-        self.f.close()
+        return self.dev.get_size()
 
     def chdir(self, fullname: str) -> bool:
         """

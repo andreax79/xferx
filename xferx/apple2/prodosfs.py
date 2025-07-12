@@ -27,10 +27,11 @@ import typing as t
 from abc import abstractmethod
 from datetime import date, datetime
 
-from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
+from ..abstract import AbstractDirectoryEntry, AbstractFile
 from ..commons import BLOCK_SIZE, IMAGE, READ_FILE_FULL, dump_struct, filename_match
+from ..device.abstract import AbstractDevice
+from .abstract import AbstractAppleDiskFilesystem
 from .commons import ProDOSFileInfo, decode_apple_single, encode_apple_single
-from .disk import AppleDisk
 
 __all__ = [
     "ProDOSFile",
@@ -1758,7 +1759,7 @@ class ProDOSBitmap:
         return free
 
 
-class ProDOSFilesystem(AbstractFilesystem, AppleDisk):
+class ProDOSFilesystem(AbstractAppleDiskFilesystem):
     """
     Apple II ProDOSo (Professional Disk Operating System)
     Apple III SOS (Sophisticated Operating System) Filesystem
@@ -1788,19 +1789,16 @@ class ProDOSFilesystem(AbstractFilesystem, AppleDisk):
     bit_map_pointer: int  # Volume bitmap pointer
     root: "DirectoryFileEntry"  # Root directory entry
 
-    def __init__(self, file: "AbstractFile"):
-        super().__init__(file, rx_device_support=False)
-
     @classmethod
-    def mount(cls, file: "AbstractFile", strict: bool = True) -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "ProDOSFilesystem":
+        self = cls(file_or_dev)
         self.pwd = "/"
         # Dummy root directory entry
         self.root = VolumeDirectoryFileEntry(self, parent=None)
         # Read the Volume Directory Header
         if not self.read_volume_directory_header():
             # Try ProDOS order
-            self.prodos_order = True
+            self.dev.prodos_order = True
             if not self.read_volume_directory_header():
                 raise OSError(errno.EIO, os.strerror(errno.EIO))
         return self
@@ -2111,12 +2109,18 @@ class ProDOSFilesystem(AbstractFilesystem, AppleDisk):
         """
         Get filesystem size in bytes
         """
-        return self.f.get_size()
+        return self.dev.get_size()
 
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
+    @classmethod
+    def initialize(
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        **kwargs: t.Union[bool, str],
+    ) -> "ProDOSFilesystem":
         """
         Initialize the filesystem
         """
+        self = cls(file_or_dev)
         try:
             volume_name = kwargs["name"].strip().upper() or DEFAULT_VOLUME_NAME  # type: ignore
         except Exception:
@@ -2130,9 +2134,7 @@ class ProDOSFilesystem(AbstractFilesystem, AppleDisk):
         self.root = VolumeDirectoryFileEntry.create_volume_directory(self, volume_name)
         self.pwd = self.root.filename
         self.volume_name = volume_name
-
-    def close(self) -> None:
-        self.f.close()
+        return self
 
     def chdir(self, fullname: str) -> bool:
         """

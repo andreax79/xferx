@@ -19,12 +19,13 @@
 # THE SOFTWARE.
 
 import errno
-from typing import Tuple
+import typing as t
 
-from .abstract import AbstractFile
+from ..abstract import AbstractFile
+from .abstract import AbstractDevice
 
 
-class Tape:
+class Tape(AbstractDevice):
 
     def __init__(self, file: "AbstractFile"):
         self.f = file
@@ -110,7 +111,7 @@ class Tape:
                 return bytes(data)
             data.extend(buffer)
 
-    def tape_read_header(self) -> Tuple[bytes, int]:
+    def tape_read_header(self) -> t.Tuple[bytes, int]:
         """
         Starting at the current position, read the next header and
         skip the file. Returns the length of skipped data.
@@ -136,3 +137,18 @@ class Tape:
             if not buffer:
                 return l
             l = l + len(buffer)
+
+    def tape_truncate(self, tape_pos: t.Optional[int] = None) -> None:
+        """
+        Truncate the tape file to the current position.
+        """
+        self.f.truncate(tape_pos if tape_pos is not None else self.tape_pos)
+
+    def get_size(self) -> int:
+        """
+        Get filesystem size in bytes
+        """
+        return self.f.get_size()
+
+    def close(self) -> None:
+        self.f.close()

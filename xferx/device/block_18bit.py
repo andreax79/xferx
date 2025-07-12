@@ -23,8 +23,11 @@ import os
 import struct
 import typing as t
 
-from ..block import BlockDevice
 from ..commons import ASCII, IMAGE
+from .block import BlockDevice
+
+if t.TYPE_CHECKING:
+    from ..abstract import AbstractFile
 
 __all__ = [
     "BlockDevice18Bit",
@@ -75,7 +78,15 @@ class BlockDevice18Bit(BlockDevice):
     Block device for 18-bit mode
     """
 
-    words_per_block: int = WORDS_PER_BLOCK
+    words_per_block: int
+
+    def __init__(
+        self,
+        file: "AbstractFile",
+        words_per_block: int = WORDS_PER_BLOCK,
+    ):
+        super().__init__(file)
+        self.words_per_block = words_per_block
 
     def read_block(
         self,
@@ -84,24 +95,25 @@ class BlockDevice18Bit(BlockDevice):
     ) -> bytes:
         data = bytearray()
         for i in range(block_number, block_number + number_of_blocks):
-            words = self.read_18bit_words_block(block_number)
+            words = self.read_words_block(block_number)
             data.extend(from_18bit_words_to_bytes(words, IMAGE))
         return bytes(data)
 
-    def read_18bit_words_block(
+    def read_words_block(
         self,
         block_number: int,
     ) -> t.List[int]:
         """
         Read a 256 bytes block as 18bit words
         """
+        print(f"Reading block {block_number} as 18bit words")
         self.f.seek(block_number * self.words_per_block * BYTES_PER_WORD_18BIT)
         buffer = self.f.read(self.words_per_block * BYTES_PER_WORD_18BIT)
         if len(buffer) < self.words_per_block * BYTES_PER_WORD_18BIT:
             raise OSError(errno.EIO, os.strerror(errno.EIO))
         return list(struct.unpack(f"{self.words_per_block}I", buffer))
 
-    def write_18bit_words_block(
+    def write_words_block(
         self,
         block_number: int,
         words: t.List[int],

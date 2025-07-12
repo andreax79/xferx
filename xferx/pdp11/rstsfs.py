@@ -25,11 +25,12 @@ import sys
 import typing as t
 from datetime import date, datetime, timedelta
 
-from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
-from ..block import BlockDevice
+from ..abstract import AbstractBlockFilesystem, AbstractDirectoryEntry, AbstractFile
 from ..cache import BlockCache
 from ..commons import BLOCK_SIZE, READ_FILE_FULL, dump_struct, filename_match
+from ..device.abstract import AbstractDevice
 from ..uic import ANY_GROUP, ANY_USER, UIC
+from .abstract import AbstractRXBlockFilesystem
 from .rad50 import asc2rad, asc_to_rad50_word, rad2asc, rad50_word_to_asc
 
 __all__ = [
@@ -179,7 +180,7 @@ def rsts_split_fullname(ppn: PPN, fullname: t.Optional[str], wildcard: bool = Tr
 class RTFSBlockCache(BlockCache):
 
     def __init__(self, fs: "RSTSFilesystem"):
-        super().__init__(fs.f)
+        super().__init__(fs.dev)
         self.fs = fs
 
     def read_block(self, block_number: int = 0, dcn: t.Optional[int] = None) -> bytes:
@@ -747,7 +748,7 @@ class MFD:
                 yield GFD.read(self, group, cache)
 
 
-class RSTSFilesystem(AbstractFilesystem, BlockDevice):
+class RSTSFilesystem(AbstractRXBlockFilesystem):
     """
     RSTS/E Filesystem
 
@@ -805,8 +806,8 @@ class RSTSFilesystem(AbstractFilesystem, BlockDevice):
     mfd: t.Optional[MFD] = None  # Master File Directory (RDS1.1 or later)
 
     @classmethod
-    def mount(cls, file: "AbstractFile", strict: bool = True) -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "RSTSFilesystem":
+        self = cls(file_or_dev)
         self.read_disk_pack_label()
         self.ppn = DEFAULT_PPN
         if strict:
@@ -1058,9 +1059,6 @@ class RSTSFilesystem(AbstractFilesystem, BlockDevice):
     ) -> t.Optional[UFDNameEntry]:
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
-    def isdir(self, fullname: str) -> bool:
-        return False
-
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         if options.get("uic"):
             # Listing of all PPN
@@ -1137,13 +1135,7 @@ class RSTSFilesystem(AbstractFilesystem, BlockDevice):
         """
         Get filesystem size in bytes
         """
-        return self.f.get_size()
-
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
-
-    def close(self) -> None:
-        self.f.close()
+        return self.dev.get_size()
 
     def chdir(self, fullname: str) -> bool:
         """

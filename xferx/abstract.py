@@ -26,11 +26,14 @@ from abc import ABC, abstractmethod
 from datetime import date
 
 from .commons import ASCII, BLOCK_SIZE, IMAGE, READ_FILE_FULL, hex_dump
+from .device.abstract import AbstractDevice
+from .device.block import BlockDevice
 
 __all__ = [
     "AbstractFile",
     "AbstractDirectoryEntry",
     "AbstractFilesystem",
+    "AbstractBlockFilesystem",
 ]
 
 
@@ -212,11 +215,23 @@ class AbstractFilesystem:
 
     fs_name: str  # Filesystem name
     fs_description: str  # Filesystem description
+    dev: AbstractDevice
+
+    def __init__(self, dev: "AbstractDevice"):
+        self.dev = dev
 
     @classmethod
     @abstractmethod
-    def mount(cls, file: "AbstractFile") -> "AbstractFilesystem":
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "AbstractFilesystem":
+        """Mount the filesystem"""
         pass
+
+    @classmethod
+    def initialize(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "AbstractFilesystem":
+        """Initialize the filesystem"""
+        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
     @abstractmethod
     def filter_entries_list(
@@ -262,13 +277,17 @@ class AbstractFilesystem:
         """Create a new directory"""
         raise OSError(errno.ENOSYS, os.strerror(errno.ENOSYS))
 
-    @abstractmethod
     def chdir(self, fullname: str) -> bool:
         """Change the current directory"""
+        return False
 
-    @abstractmethod
+    def get_pwd(self) -> str:
+        """Get the current directory"""
+        return ""
+
     def isdir(self, fullname: str) -> bool:
         """Check if the given path is a directory"""
+        return False
 
     @abstractmethod
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
@@ -282,17 +301,9 @@ class AbstractFilesystem:
     def get_size(self) -> int:
         """Get filesystem size in bytes"""
 
-    @abstractmethod
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
-        """Initialize the filesystem"""
-
-    @abstractmethod
     def close(self) -> None:
         """Close the filesystem"""
-
-    @abstractmethod
-    def get_pwd(self) -> str:
-        """Get the current directory"""
+        self.dev.close()
 
     def exists(self, fullname: str) -> bool:
         """Check if the given path exists"""
@@ -334,7 +345,7 @@ class AbstractFilesystem:
                     hex_dump(data)
             finally:
                 f.close()
-        else:
+        elif hasattr(self, "read_block"):
             if start is None:
                 start = 0
             if end is None:
@@ -352,3 +363,32 @@ class AbstractFilesystem:
         Get the list of the supported file types
         """
         return []
+
+
+class AbstractBlockFilesystem(AbstractFilesystem):
+    """Abstract base class for block-based filesystems"""
+
+    dev: BlockDevice
+
+    def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"]):
+        if isinstance(file_or_device, AbstractFile):
+            self.dev = BlockDevice(file_or_device)
+        elif isinstance(file_or_device, BlockDevice):
+            self.dev = file_or_device
+        else:
+            raise OSError(errno.EIO, "Not a valid block device")
+
+    def read_block(
+        self,
+        block_number: int,
+        number_of_blocks: int = 1,
+    ) -> bytes:
+        return self.dev.read_block(block_number, number_of_blocks)
+
+    def write_block(
+        self,
+        buffer: bytes,
+        block_number: int,
+        number_of_blocks: int = 1,
+    ) -> None:
+        self.dev.write_block(buffer, block_number, number_of_blocks)

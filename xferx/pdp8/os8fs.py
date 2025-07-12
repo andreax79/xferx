@@ -28,9 +28,10 @@ import typing as t
 from datetime import date
 
 from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
-from ..block import BlockDevice12Bit
 from ..commons import ASCII, BLOCK_SIZE, IMAGE, READ_FILE_FULL, filename_match
-from ..rx import RX_SECTOR_TRACK
+from ..device.abstract import AbstractDevice
+from ..device.block_12bit import BlockDevice12Bit, RXBlockDevice12Bit
+from ..device.rx import RX_SECTOR_TRACK
 
 __all__ = [
     "OS8File",
@@ -246,7 +247,7 @@ class OS8File(AbstractFile):
         data = bytearray()
         for i in range(number_of_blocks):
             block_position = block_number + self.entry.file_position + i
-            words = self.entry.segment.partition.read_12bit_words_block(block_position)
+            words = self.entry.segment.partition.read_words_block(block_position)
             t = from_12bit_words_to_bytes(words, self.file_mode)
             data.extend(t)
         return bytes(data)
@@ -271,7 +272,7 @@ class OS8File(AbstractFile):
             block_position = block_number + self.entry.file_position + i
             data = buffer[i * OS8_BLOCK_SIZE_BYTES : (i + 1) * OS8_BLOCK_SIZE_BYTES]
             words = from_bytes_to_12bit_words(data, self.file_mode)
-            self.entry.segment.partition.write_12bit_words_block(block_position, words)
+            self.entry.segment.partition.write_words_block(block_position, words)
 
     def get_size(self) -> int:
         """
@@ -359,7 +360,7 @@ class OS8DirectoryEntry(AbstractDirectoryEntry):
                 # to store the creation date
                 self.raw_creation_date = self.extra_words[0]
             self.length = 999
-            print(self)
+            print(">>>", self)
             length = words[self.segment.extra_words + 4 + position]
             self.length = 0o10000 - length if length else length
         else:  # Empty entry
@@ -519,7 +520,7 @@ class OS8Segment:
         Read a Volume Directory Segment from disk
         """
         self = cls(partition)
-        data = self.partition.read_12bit_words_block(block_number)
+        data = self.partition.read_words_block(block_number)
         self.block_number = block_number
         number_of_entries = 0o10000 - data[0]  # Minus the number of entries
         self.data_block_number = data[1]  # Block number where the stored data begins
@@ -567,7 +568,7 @@ class OS8Segment:
         for entry in self.entries_list:
             words.extend(entry.to_words())
         words += [0] * (DIRECTORY_SEGMENT_SIZE - len(words))
-        self.partition.write_12bit_words_block(self.block_number, words)
+        self.partition.write_words_block(self.block_number, words)
 
     @property
     def number_of_entries(self) -> int:
@@ -660,13 +661,13 @@ class OS8Partition:
         self.partition_size = fs.partition_size
         self.base_block_number = partition_number * fs.partition_size
 
-    def read_12bit_words_block(self, block_number: int) -> t.List[int]:
+    def read_words_block(self, block_number: int) -> t.List[int]:
         """
         Read a 512 bytes block as 256 12bit words
         """
-        return self.fs.read_12bit_words_block(block_number + self.base_block_number)
+        return self.fs.read_words_block(block_number + self.base_block_number)
 
-    def write_12bit_words_block(
+    def write_words_block(
         self,
         block_number: int,
         words: t.List[int],
@@ -674,7 +675,7 @@ class OS8Partition:
         """
         Write 256 12bit words as 512 bytes block
         """
-        return self.fs.write_12bit_words_block(block_number + self.base_block_number, words)
+        return self.fs.write_words_block(block_number + self.base_block_number, words)
 
     def read_dir_segments(self) -> t.Iterator["OS8Segment"]:
         """
@@ -804,8 +805,8 @@ class OS8Partition:
         segment.extra_words = 1
         # Empty directory entry
         length = self.partition_size - segment.data_block_number
-        if self.fs.is_rx_12bit:
-            length = length - RX_SECTOR_TRACK * self.fs.sector_size // BLOCK_SIZE
+        if self.fs.dev.is_rx:
+            length = length - RX_SECTOR_TRACK * self.fs.dev.sector_size // BLOCK_SIZE
         dir_entry = OS8DirectoryEntry(segment)
         dir_entry.empty_entry = True
         dir_entry.filename = ""
@@ -832,7 +833,7 @@ class OS8Partition:
         return buf.getvalue()
 
 
-class OS8Filesystem(AbstractFilesystem, BlockDevice12Bit):
+class OS8Filesystem(AbstractFilesystem):
     """
     OS/8 Filesystem
 
@@ -842,9 +843,18 @@ class OS8Filesystem(AbstractFilesystem, BlockDevice12Bit):
 
     fs_name = "os8"
     fs_description = "PDP-8 OS/8"
+    dev: BlockDevice12Bit
 
     current_partition: int  # Current partition
     number_of_blocks: int  # Number of blocks
+
+    def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"]):
+        if isinstance(file_or_device, AbstractFile):
+            self.dev = RXBlockDevice12Bit(file_or_device)
+        elif isinstance(file_or_device, BlockDevice12Bit):
+            self.dev = file_or_device
+        else:
+            raise OSError(errno.EIO, f"Invalid device type for {self.fs_description} filesystem")
 
     @property
     def num_of_partitions(self) -> int:
@@ -870,11 +880,30 @@ class OS8Filesystem(AbstractFilesystem, BlockDevice12Bit):
             raise FileNotFoundError(errno.ENOENT, "Partition not found", partition_number)
 
     @classmethod
-    def mount(cls, file: "AbstractFile") -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "OS8Filesystem":
+        """
+        Mount the OS/8 filesystem from a file
+        """
+        self = cls(file_or_dev)
         self.current_partition = 0
-        self.number_of_blocks = self.f.get_size() // BLOCK_SIZE
+        self.number_of_blocks = self.dev.get_size() // BLOCK_SIZE
         return self
+
+    def read_words_block(self, block_number: int) -> t.List[int]:
+        """
+        Read a block as 256 12bit words
+        """
+        return self.dev.read_words_block(block_number)
+
+    def write_words_block(
+        self,
+        block_number: int,
+        words: t.List[int],
+    ) -> None:
+        """
+        Write 256 12bit words as a block
+        """
+        self.dev.write_words_block(block_number, words)
 
     def filter_entries_list(
         self,
@@ -995,7 +1024,7 @@ class OS8Filesystem(AbstractFilesystem, BlockDevice12Bit):
         else:
             sys.stdout.write(f"Number of partitions:     {self.num_of_partitions}\n")
             sys.stdout.write(f"Size of each partition:   {self.partition_size}\n")
-            sys.stdout.write(f"Is RX01/RX02:             {'YES' if self.is_rx_12bit else 'NO'}\n")
+            sys.stdout.write(f"Is RX01/RX02:             {'YES' if self.dev.is_rx else 'NO'}\n")
             for partition_number in range(0, self.num_of_partitions):
                 partition = self.get_partition(partition_number)
                 sys.stdout.write(f"{partition}\n")
@@ -1011,7 +1040,7 @@ class OS8Filesystem(AbstractFilesystem, BlockDevice12Bit):
             if end is None or end > entry.get_length() - 1:
                 end = entry.get_length() - 1
             for block_number in range(start, end + 1):
-                words = self.read_12bit_words_block(entry.file_position + block_number)
+                words = self.read_words_block(entry.file_position + block_number)
                 print(f"\nBLOCK NUMBER   {block_number:08}")
                 oct_dump(words)
         else:
@@ -1022,35 +1051,38 @@ class OS8Filesystem(AbstractFilesystem, BlockDevice12Bit):
             elif end is None:  # one single block
                 end = start
             for block_number in range(start, end + 1):
-                words = self.read_12bit_words_block(block_number)
+                words = self.read_words_block(block_number)
                 print(f"\nBLOCK NUMBER   {block_number:08}")
                 oct_dump(words)
 
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
+    @classmethod
+    def initialize(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "OS8Filesystem":
         """
         Create an empty OS/8 filesystem
         """
+        self = cls(file_or_dev)
         self.current_partition = 0
-        self.number_of_blocks = self.f.get_size() // BLOCK_SIZE
+        assert isinstance(self.dev, BlockDevice12Bit), "OS/8 filesystem requires a 12-bit block device"
+        self.number_of_blocks = self.dev.get_size() // BLOCK_SIZE
         # Initialize the partitions
         for partition_number in range(0, self.num_of_partitions):
             partition = OS8Partition(self, partition_number)
             partition.initialize(**kwargs)
+        return self
 
     def get_size(self) -> int:
         """
         Get filesystem size in bytes
         """
-        return self.f.get_size()
+        return self.dev.get_size()
 
     def close(self) -> None:
-        self.f.close()
+        self.dev.close()
 
     def get_pwd(self) -> str:
         if self.current_partition == 0:
             return ""
         else:
             return f"[{self.current_partition}]"
-
-    def __str__(self) -> str:
-        return str(self.f)

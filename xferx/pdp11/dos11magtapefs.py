@@ -28,7 +28,8 @@ from datetime import date
 
 from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
 from ..commons import BLOCK_SIZE, READ_FILE_FULL, filename_match
-from ..tape import Tape
+from ..device.abstract import AbstractDevice
+from ..device.tape import Tape
 from ..uic import ANY_UIC, DEFAULT_UIC, UIC
 from .dos11fs import (
     DEFAULT_PROTECTION_CODE,
@@ -60,8 +61,8 @@ class DOS11MagTapeFile(AbstractFile):
         self.entry = entry
         self.closed = False
         self.size = entry.size
-        entry.fs.tape_seek(entry.tape_pos)
-        self.content = entry.fs.tape_read_file()[HEADER_RECORD_SIZE:]
+        entry.fs.dev.tape_seek(entry.tape_pos)
+        self.content = entry.fs.dev.tape_read_file()[HEADER_RECORD_SIZE:]
 
     def read_block(
         self,
@@ -209,10 +210,10 @@ class DOS11MagTapeDirectoryEntry(AbstractDirectoryEntry):
         struct.pack_into(
             HEADER_RECORD, buffer, 0, fnam1, fnam2, ftyp, fuic, self.protection_code, self.raw_creation_date, fnam3
         )
-        self.fs.tape_seek(self.tape_pos)
-        self.fs.tape_write_forward(buffer)
+        self.fs.dev.tape_seek(self.tape_pos)
+        self.fs.dev.tape_write_forward(buffer)
         if skip_file:
-            self.fs.tape_skip_file()
+            self.fs.dev.tape_skip_file()
         return True
 
     @property
@@ -286,7 +287,7 @@ class DOS11MagTapeDirectoryEntry(AbstractDirectoryEntry):
         return str(self)
 
 
-class DOS11MagTapeFilesystem(AbstractFilesystem, Tape):
+class DOS11MagTapeFilesystem(AbstractFilesystem):
     """
     DOS/BATCH MagTape Filesystem
 
@@ -313,15 +314,29 @@ class DOS11MagTapeFilesystem(AbstractFilesystem, Tape):
 
     fs_name = "magtape"
     fs_description = "PDP-11 DOS/BATCH Magtape"
+    dev: Tape
 
     uic: UIC = DEFAULT_UIC  # current User Identification Code
 
+    def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"]):
+        if isinstance(file_or_device, AbstractFile):
+            self.dev = Tape(file_or_device)
+        elif isinstance(file_or_device, Tape):
+            self.dev = file_or_device
+        else:
+            raise OSError(errno.EIO, f"Invalid device type for {self.fs_description} filesystem")
+
     @classmethod
-    def mount(cls, file: "AbstractFile", strict: bool = True) -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True
+    ) -> "DOS11MagTapeFilesystem":
+        """
+        Mount the filesystem from a file or device
+        """
+        self = cls(file_or_dev)
         # if strict:
-        #     self.tape_rewind()
-        #     tape_pos = self.tape_pos
+        #     self.dev.tape_rewind()
+        #     tape_pos = self.dev.tape_pos
         #     header, size = self.tape_read_header()
         #     entry = DOS11MagTapeDirectoryEntry.read(self, header, tape_pos, size)
         #     # if entry is not None or entry.size < 0:
@@ -330,11 +345,11 @@ class DOS11MagTapeFilesystem(AbstractFilesystem, Tape):
 
     def read_file_headers(self, uic: UIC = ANY_UIC) -> t.Iterator["DOS11MagTapeDirectoryEntry"]:
         """Read file headers"""
-        self.tape_rewind()
+        self.dev.tape_rewind()
         try:
             while True:
-                tape_pos = self.tape_pos
-                header, size = self.tape_read_header()
+                tape_pos = self.dev.tape_pos
+                header, size = self.dev.tape_read_header()
                 if header:
                     entry = DOS11MagTapeDirectoryEntry.read(self, header, tape_pos, size)
                     if uic.match(entry.uic):
@@ -414,8 +429,8 @@ class DOS11MagTapeFilesystem(AbstractFilesystem, Tape):
         except FileNotFoundError:
             pass
         # Find the position for the new file
-        tape_pos = self.tape_pos - 4  # tape mark size
-        self.f.truncate(tape_pos)
+        tape_pos = self.dev.tape_pos - 4  # tape mark size
+        self.dev.tape_truncate()
         # Create the new directory entry
         filename, extension = basename.split(".", 1)  # type: ignore
         entry = DOS11MagTapeDirectoryEntry.new(
@@ -435,17 +450,14 @@ class DOS11MagTapeFilesystem(AbstractFilesystem, Tape):
                 record = content[i * RECORD_SIZE : (i + 1) * RECORD_SIZE]
                 if len(record) < RECORD_SIZE:
                     record += b"\0" * (RECORD_SIZE - len(record))
-                self.tape_write_forward(record)
+                self.dev.tape_write_forward(record)
             else:
-                self.tape_write_forward(empty_record)
+                self.dev.tape_write_forward(empty_record)
         # Write tape mark
-        self.tape_write_mark()
-        self.tape_write_mark()
-        self.f.truncate(self.tape_pos)
+        self.dev.tape_write_mark()
+        self.dev.tape_write_mark()
+        self.dev.tape_truncate()
         return entry
-
-    def isdir(self, fullname: str) -> bool:
-        return False
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         if options.get("uic"):
@@ -499,18 +511,20 @@ class DOS11MagTapeFilesystem(AbstractFilesystem, Tape):
         """
         Get filesystem size in bytes
         """
-        return self.f.get_size()
+        return self.dev.get_size()
 
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
+    @classmethod
+    def initialize(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "DOS11MagTapeFilesystem":
         """
         Initialize the filesystem
         """
-        self.tape_rewind()
-        self.tape_write_mark()
-        self.f.truncate(self.tape_pos)
-
-    def close(self) -> None:
-        self.f.close()
+        self = cls(file_or_dev)
+        self.dev.tape_rewind()
+        self.dev.tape_write_mark()
+        self.dev.tape_truncate()
+        return self
 
     def chdir(self, fullname: str) -> bool:
         """
@@ -524,6 +538,3 @@ class DOS11MagTapeFilesystem(AbstractFilesystem, Tape):
 
     def get_pwd(self) -> str:
         return str(self.uic)
-
-    def __str__(self) -> str:
-        return str(self.f)

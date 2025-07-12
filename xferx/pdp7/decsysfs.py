@@ -29,7 +29,8 @@ from enum import Enum
 
 from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
 from ..commons import ASCII, IMAGE, READ_FILE_FULL, filename_match
-from .block import (
+from ..device.abstract import AbstractDevice
+from ..device.block_18bit import (
     BlockDevice18Bit,
     from_18bit_words_to_bytes,
     from_bytes_to_18bit_words,
@@ -176,7 +177,7 @@ class DECSysFile(AbstractFile):
             data = bytearray()
             for i, next_block_number in enumerate(self.entry.get_blocks()):
                 if i >= block_number:
-                    words = self.entry.directory.fs.read_18bit_words_block(next_block_number)
+                    words = self.entry.directory.fs.read_words_block(next_block_number)
                     if i == 0:  # first block
                         num_words_comp = words[0]
                         num_words = 0x40000 - num_words_comp
@@ -195,7 +196,7 @@ class DECSysFile(AbstractFile):
             data = bytearray()
             for i, next_block_number in enumerate(self.entry.get_blocks()):
                 if i >= block_number:
-                    words = self.entry.directory.fs.read_18bit_words_block(next_block_number)
+                    words = self.entry.directory.fs.read_words_block(next_block_number)
                     num_words_comp = words[1]
                     num_words = 0x40000 - num_words_comp
                     words = words[2 : 2 + num_words]  # Skip the first 2 words
@@ -218,9 +219,9 @@ class DECSysFile(AbstractFile):
         if self.closed or block_number < 0 or number_of_blocks < 0:
             raise OSError(errno.EIO, os.strerror(errno.EIO))
         words = from_bytes_to_18bit_words(buffer, self.file_mode)
-        self.write_18bit_words_block(words, block_number, number_of_blocks)
+        self.write_words_block(words, block_number, number_of_blocks)
 
-    def write_18bit_words_block(
+    def write_words_block(
         self,
         words: t.List[int],
         block_number: int,
@@ -245,7 +246,7 @@ class DECSysFile(AbstractFile):
                     + block_words
                     + ([0] * (LINKED_FILE_WORDS_PER_BLOCK - len(block_words)))
                 )
-                self.entry.directory.fs.write_18bit_words_block(blocks[i], block_words)
+                self.entry.directory.fs.write_words_block(blocks[i], block_words)
 
     def get_length(self) -> int:
         """
@@ -534,12 +535,12 @@ class SystemDirectoryEntry(DECSysDirectoryEntry):
         num_blocks = 0
         last_word = 0
         while last_word != 0o777777:
-            buffer = self.directory.fs.read_18bit_words_block(block_number + num_blocks)
+            buffer = self.directory.fs.read_words_block(block_number + num_blocks)
             num_words = 0x40000 - buffer[0]
             t_num_blocks = math.ceil((num_words + 2) / 256)
             if t_num_blocks > 1:
                 # Read the last block to check the last word
-                buffer = self.directory.fs.read_18bit_words_block(block_number + num_blocks + t_num_blocks - 1)
+                buffer = self.directory.fs.read_words_block(block_number + num_blocks + t_num_blocks - 1)
             last_word = buffer[(num_words + 2) % 256]
             num_blocks += t_num_blocks
         return list(range(block_number, block_number + num_blocks))
@@ -609,7 +610,7 @@ class WorkingDirectoryEntry(DECSysDirectoryEntry):
         blocks = []
         while next_block_number:
             blocks.append(next_block_number)
-            next_block_number = self.directory.fs.read_18bit_words_block(next_block_number)[0]
+            next_block_number = self.directory.fs.read_words_block(next_block_number)[0]
         return blocks
 
     def __str__(self) -> str:
@@ -680,7 +681,7 @@ class LibraryDirectoryEntry(DECSysDirectoryEntry):
         blocks = []
         while next_block_number:
             blocks.append(next_block_number)
-            next_block_number = self.directory.fs.read_18bit_words_block(next_block_number)[0]
+            next_block_number = self.directory.fs.read_words_block(next_block_number)[0]
         return blocks
 
     def __str__(self) -> str:
@@ -744,7 +745,7 @@ class ProgramDirectory(DECSysAbstractDirectory):
         """
         self = ProgramDirectory(fs)
         self.entries = []
-        words = self.fs.read_18bit_words_block(PROGRAM_DIRECTORY_BLOCK)
+        words = self.fs.read_words_block(PROGRAM_DIRECTORY_BLOCK)
         dir_length = words[0]  # Directory length, in words
         self.first_free_block = words[255]  # First free block number
         position = 1
@@ -764,7 +765,7 @@ class ProgramDirectory(DECSysAbstractDirectory):
         words[0] = len(words) - 1  # Directory length, in words
         words += [0] * (255 - len(words))  # pad
         words += [self.first_free_block]  # First free block number
-        self.fs.write_18bit_words_block(PROGRAM_DIRECTORY_BLOCK, words)
+        self.fs.write_words_block(PROGRAM_DIRECTORY_BLOCK, words)
 
 
 class LibraryDirectory(DECSysAbstractDirectory):
@@ -792,7 +793,7 @@ class LibraryDirectory(DECSysAbstractDirectory):
         """
         self = LibraryDirectory(fs)
         self.entries = []
-        words = self.fs.read_18bit_words_block(LIBRARY_DIRECTORY_BLOCK)
+        words = self.fs.read_words_block(LIBRARY_DIRECTORY_BLOCK)
         dir_length = words[0]  # Directory length, in words
         position = 1
         while position < len(words) - 5 and position < dir_length:
@@ -810,10 +811,10 @@ class LibraryDirectory(DECSysAbstractDirectory):
             words += entry.to_words()
         words[0] = len(words) - 1  # Directory length, in words
         words += [0] * (256 - len(words))  # pad
-        self.fs.write_18bit_words_block(LIBRARY_DIRECTORY_BLOCK, words)
+        self.fs.write_words_block(LIBRARY_DIRECTORY_BLOCK, words)
 
 
-class DECSysFilesystem(AbstractFilesystem, BlockDevice18Bit):
+class DECSysFilesystem(AbstractFilesystem):
     """
 
     DECtapes prepared for the DECSYS-7 user contains
@@ -847,15 +848,45 @@ class DECSysFilesystem(AbstractFilesystem, BlockDevice18Bit):
 
     fs_name = "decsys"
     fs_description = "PDP-7 DECSys"
-    words_per_block = WORDS_PER_BLOCK
+    dev: BlockDevice18Bit
+
+    def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"]):
+        if isinstance(file_or_device, AbstractFile):
+            self.dev = BlockDevice18Bit(file_or_device, words_per_block=WORDS_PER_BLOCK)
+        elif isinstance(file_or_device, BlockDevice18Bit):
+            self.dev = file_or_device
+        else:
+            raise OSError(errno.EIO, f"Invalid device type for {self.fs_description} filesystem")
 
     @classmethod
-    def mount(cls, file: "AbstractFile", strict: bool = True) -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "DECSysFilesystem":
+        """
+        Mount the filesystem from a file or device
+        """
+        self = cls(file_or_dev)
         if strict:
             if self.get_size() // WORDS_PER_BLOCK // 4 != DECTAPE_BLOCKS:
                 raise OSError(errno.EINVAL, "Invalid DECSys tape size")
         return self
+
+    def read_words_block(
+        self,
+        block_number: int,
+    ) -> t.List[int]:
+        """
+        Read a 256 bytes block as 18bit words
+        """
+        return self.dev.read_words_block(block_number)
+
+    def write_words_block(
+        self,
+        block_number: int,
+        words: t.List[int],
+    ) -> None:
+        """
+        Write 256 18bit words as a block
+        """
+        self.dev.write_words_block(block_number, words)
 
     def read_tape_label(self) -> t.Tuple[str, str]:
         """
@@ -870,7 +901,7 @@ class DECSysFilesystem(AbstractFilesystem, BlockDevice18Bit):
         https://simh.trailing-edge.com/docs/decsys.pdf  Pag 2
         http://bitsavers.informatik.uni-stuttgart.de/pdf/dec/pdp7/DEC-07-SDDA-D_DECSYS7_Nov66.pdf  Pag 12
         """
-        words = self.read_18bit_words_block(TAPE_LABEL_BLOCK)
+        words = self.read_words_block(TAPE_LABEL_BLOCK)
         label1, position = read_baudot_string(words, 0)
         label2, _ = read_baudot_string(words, position + 1)
         return label1, label2
@@ -973,7 +1004,7 @@ class DECSysFilesystem(AbstractFilesystem, BlockDevice18Bit):
                 + block_words
                 + ([0] * (LINKED_FILE_WORDS_PER_BLOCK - len(block_words)))
             )
-            self.write_18bit_words_block(blocks[i], block_words)
+            self.write_words_block(blocks[i], block_words)
         first_free_block = max(allocated_blocks + blocks) + 1
         return blocks, first_free_block
 
@@ -1029,7 +1060,7 @@ class DECSysFilesystem(AbstractFilesystem, BlockDevice18Bit):
         if entry is not None:
             f = entry.open(file_type)
             try:
-                f.write_18bit_words_block(words, block_number=0, number_of_blocks=number_of_blocks)
+                f.write_words_block(words, block_number=0, number_of_blocks=number_of_blocks)
             finally:
                 f.close()
 
@@ -1116,7 +1147,7 @@ class DECSysFilesystem(AbstractFilesystem, BlockDevice18Bit):
             if end is None or end > len(blocks) - 1:
                 end = entry.get_length() - 1
             for block_number in range(start, end + 1):
-                words = self.read_18bit_words_block(blocks[block_number])
+                words = self.read_words_block(blocks[block_number])
                 sys.stdout.write(f"\nBLOCK NUMBER   {block_number:08}\n")
                 oct_dump(words)
         else:
@@ -1127,7 +1158,7 @@ class DECSysFilesystem(AbstractFilesystem, BlockDevice18Bit):
             elif end is None:  # one single block
                 end = start
             for block_number in range(start, end + 1):
-                words = self.read_18bit_words_block(block_number)
+                words = self.read_words_block(block_number)
                 sys.stdout.write(f"\nBLOCK NUMBER   {block_number:08}\n")
                 oct_dump(words)
 
@@ -1135,10 +1166,7 @@ class DECSysFilesystem(AbstractFilesystem, BlockDevice18Bit):
         """
         Get filesystem size in bytes
         """
-        return self.f.get_size()
-
-    def close(self) -> None:
-        self.f.close()
+        return self.dev.get_size()
 
     def get_pwd(self) -> str:
         return ""
@@ -1151,6 +1179,3 @@ class DECSysFilesystem(AbstractFilesystem, BlockDevice18Bit):
             IMAGE,
             ASCII,
         ]
-
-    def __str__(self) -> str:
-        return str(self.f)

@@ -30,8 +30,9 @@ import typing as t
 from datetime import date
 
 from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
-from ..block import BlockDevice12Bit
 from ..commons import ASCII, IMAGE, READ_FILE_FULL
+from ..device.abstract import AbstractDevice
+from ..device.block_12bit import BlockDevice12Bit, RXBlockDevice12Bit
 
 __all__ = [
     "DMSFile",
@@ -872,7 +873,7 @@ class DirectorNameBlock:
         return buf.getvalue()
 
 
-class DMSFilesystem(AbstractFilesystem, BlockDevice12Bit):
+class DMSFilesystem(AbstractFilesystem):
     """
     PDP-8 4k Disk Monitor System Filesystem
 
@@ -934,19 +935,26 @@ class DMSFilesystem(AbstractFilesystem, BlockDevice12Bit):
 
     fs_name = "dms"
     fs_description = "PDP-8 4k Disk Monitor System"
+    dev: BlockDevice12Bit
 
     version_string: str  # Version
     first_scratch_block_number: int  # First scratch block number
     first_sam_block_number: int  # First SAM block number
 
-    def __init__(self, file: "AbstractFile"):
-        super().__init__(file)
-        self.is_rx_12bit = False
-        self.is_rx = False
+    def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"]):
+        if isinstance(file_or_device, AbstractFile):
+            self.dev = RXBlockDevice12Bit(file_or_device)
+        elif isinstance(file_or_device, BlockDevice12Bit):
+            self.dev = file_or_device
+        else:
+            raise OSError(errno.EIO, f"Invalid device type for {self.fs_description} filesystem")
 
     @classmethod
-    def mount(cls, file: "AbstractFile", strict: bool = True) -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "DMSFilesystem":
+        """
+        Mount the 4k Disk Monitor System filesystem from a file
+        """
+        self = cls(file_or_dev)
         # Read the first Directory Name block
         dn = DirectorNameBlock.read(self, DN_START, 0)
         self.first_scratch_block_number = dn.first_scratch_block_number
@@ -967,8 +975,8 @@ class DMSFilesystem(AbstractFilesystem, BlockDevice12Bit):
         - Skip the first word of disk
         """
         position = block_number * BLOCK_SIZE_WORD * BYTES_PER_WORD + BYTES_PER_WORD
-        self.f.seek(position)
-        data = self.f.read(BLOCK_SIZE_WORD * BYTES_PER_WORD)
+        self.dev.f.seek(position)
+        data = self.dev.f.read(BLOCK_SIZE_WORD * BYTES_PER_WORD)
         return [x & 0o7777 for x in struct.unpack(f"<{BLOCK_SIZE_WORD}H", data)]
 
     def write_12bit_words_block(self, block_number: int, words: t.List[int]) -> None:
@@ -981,8 +989,8 @@ class DMSFilesystem(AbstractFilesystem, BlockDevice12Bit):
         assert len(words) == BLOCK_SIZE_WORD
         data = struct.pack(f"<{BLOCK_SIZE_WORD}H", *words)
         position = block_number * BLOCK_SIZE_WORD * BYTES_PER_WORD + BYTES_PER_WORD
-        self.f.seek(position)
-        self.f.write(data)
+        self.dev.f.seek(position)
+        self.dev.f.write(data)
 
     def filter_entries_list(
         self,
@@ -1205,10 +1213,14 @@ class DMSFilesystem(AbstractFilesystem, BlockDevice12Bit):
                 print(f"\nBLOCK NUMBER   {block_number:08}")
                 oct_dump(words)
 
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
+    @classmethod
+    def initialize(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "DMSFilesystem":
         """
         Create an empty PDP-8 4k Disk Monitor filesystem
         """
+        self = cls(file_or_dev)
         version_string = "AF"
         scratch_blocks = [251, 252, 253, 254, 255]
         dn_blocks = [DN_START, DN_START + 2, DN_START + 3]
@@ -1247,15 +1259,16 @@ class DMSFilesystem(AbstractFilesystem, BlockDevice12Bit):
                 dn.next_directory_name = dn_blocks[i + 1]
             dn.write()
         sam.write()
+        return self
 
     def get_size(self) -> int:
         """
         Get filesystem size in bytes
         """
-        return self.f.get_size()
+        return self.dev.get_size()
 
     def close(self) -> None:
-        self.f.close()
+        self.dev.close()
 
     def get_pwd(self) -> str:
         return ""
@@ -1271,6 +1284,3 @@ class DMSFilesystem(AbstractFilesystem, BlockDevice12Bit):
             EXT_BINARY,
             EXT_FTC_BIN,
         ]
-
-    def __str__(self) -> str:
-        return str(self.f)

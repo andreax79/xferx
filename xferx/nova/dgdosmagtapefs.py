@@ -28,7 +28,8 @@ from datetime import date
 
 from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
 from ..commons import ASCII, IMAGE, READ_FILE_FULL, filename_match
-from ..tape import Tape
+from ..device.abstract import AbstractDevice
+from ..device.tape import Tape
 
 __all__ = [
     "DGDOSMagTapeFile",
@@ -76,10 +77,10 @@ class DGDOSMagTapeFile(AbstractFile):
     @property
     def content(self) -> bytes:
         if self._content is None:
-            self.entry.fs.tape_seek(self.entry.tape_pos)
+            self.entry.fs.dev.tape_seek(self.entry.tape_pos)
             data = bytearray()
             while True:
-                buffer = self.entry.fs.tape_read_forward()
+                buffer = self.entry.fs.dev.tape_read_forward()
                 if not buffer:
                     break
                 if len(buffer) != TAPE_BLOCK_SIZE:
@@ -238,7 +239,7 @@ class DGDOSMagTapeDirectoryEntry(AbstractDirectoryEntry):
         return str(self)
 
 
-class DGDOSMagTapeFilesystem(AbstractFilesystem, Tape):
+class DGDOSMagTapeFilesystem(AbstractFilesystem):
     """
     Data General DOS/RDOS MagTape Filesystem
 
@@ -263,24 +264,35 @@ class DGDOSMagTapeFilesystem(AbstractFilesystem, Tape):
 
     fs_name = "dgdosmt"
     fs_description = "Data General DOS/RDOS Magtape"
+    dev: Tape
+
+    def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"]):
+        if isinstance(file_or_device, AbstractFile):
+            self.dev = Tape(file_or_device)
+        elif isinstance(file_or_device, Tape):
+            self.dev = file_or_device
+        else:
+            raise OSError(errno.EIO, f"Invalid device type for {self.fs_description} filesystem")
 
     @classmethod
-    def mount(cls, file: "AbstractFile", strict: bool = True) -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True
+    ) -> "DGDOSMagTapeFilesystem":
+        self = cls(file_or_dev)
         if strict:
             # Check if the file is a valid tape
-            self.tape_rewind()
+            self.dev.tape_rewind()
             try:
                 while True:
                     # First file block
-                    buffer = self.tape_read_forward()
+                    buffer = self.dev.tape_read_forward()
                     if not buffer:
                         break
                     file_number = get_file_number(buffer)
                     # Other file blocks
                     try:
                         while True:
-                            buffer = self.tape_read_forward()
+                            buffer = self.dev.tape_read_forward()
                             if not buffer:
                                 break
                             tmp = get_file_number(buffer)
@@ -296,11 +308,11 @@ class DGDOSMagTapeFilesystem(AbstractFilesystem, Tape):
         """
         Read the directory entries from the tape
         """
-        self.tape_rewind()
+        self.dev.tape_rewind()
         try:
             while True:
-                tape_pos = self.tape_pos
-                header, size = self.tape_read_header()
+                tape_pos = self.dev.tape_pos
+                header, size = self.dev.tape_read_header()
                 if not header:
                     break
                 yield DGDOSMagTapeDirectoryEntry.read(self, header, tape_pos, size)
@@ -389,26 +401,28 @@ class DGDOSMagTapeFilesystem(AbstractFilesystem, Tape):
         """
         Get filesystem size in bytes
         """
-        return self.f.get_size()
+        return self.dev.get_size()
 
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
+    @classmethod
+    def initialize(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "DGDOSMagTapeFilesystem":
         """
         Initialize the filesystem
         """
-        self.tape_rewind()
+        self = cls(file_or_dev)
+        self.dev.tape_rewind()
         # Logical end of tape (2 tape marks)
-        self.tape_write_mark()
-        self.tape_write_mark()
-        self.f.truncate(self.tape_pos)
+        self.dev.tape_write_mark()
+        self.dev.tape_write_mark()
+        self.dev.tape_truncate()
+        return self
 
     def close(self) -> None:
-        self.f.close()
+        self.dev.close()
 
     def chdir(self, fullname: str) -> bool:
         return False
 
     def get_pwd(self) -> str:
         return ""
-
-    def __str__(self) -> str:
-        return str(self.f)

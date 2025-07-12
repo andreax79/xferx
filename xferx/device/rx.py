@@ -18,11 +18,19 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+import errno
+import math
+import os
 import typing as t
 
-from .commons import BLOCK_SIZE
+from ..commons import BLOCK_SIZE, READ_FILE_FULL
+from .block import BlockDevice
+
+if t.TYPE_CHECKING:
+    from ..abstract import AbstractFile
 
 __all__ = [
+    "RXBlockDevice",
     "RX_SECTOR_TRACK",
     "RX_TRACK_DISK",
     "RX01_SECTOR_SIZE",
@@ -166,3 +174,55 @@ def rx_pack_12bit_words(words: t.List[int], position: int, sector_size: int) -> 
 
     byte_length = (len(words) * 12 + 7) // 8  # Calculate number of bytes needed
     return bit_buffer.to_bytes(byte_length, byteorder="big")
+
+
+class RXBlockDevice(BlockDevice):
+    """
+    Block device with RX01/RX02 support.
+    """
+
+    is_rx: bool  # True if this device is a RX01/RX02
+
+    def __init__(self, file: "AbstractFile"):
+        super().__init__(file)
+        self.sector_size = get_sector_size(self.size)
+        self.is_rx = self.sector_size in (RX01_SECTOR_SIZE, RX02_SECTOR_SIZE)
+
+    def read_block(
+        self,
+        block_number: int,
+        number_of_blocks: int = 1,
+    ) -> bytes:
+        if self.is_rx:
+            if number_of_blocks == READ_FILE_FULL:
+                number_of_blocks = int(math.ceil(self.size / BLOCK_SIZE))
+            if block_number < 0 or number_of_blocks < 0:
+                raise OSError(errno.EIO, os.strerror(errno.EIO))
+            ret = []
+            start_sector = block_number * BLOCK_SIZE // self.sector_size
+            for i in range(0, number_of_blocks * BLOCK_SIZE // self.sector_size):
+                blkno = start_sector + i
+                position = rxfactr(blkno, self.sector_size)
+                self.f.seek(position)  # not thread safe...
+                ret.append(self.f.read(self.sector_size))
+            return b"".join(ret)
+        else:
+            return super().read_block(block_number, number_of_blocks)
+
+    def write_block(
+        self,
+        buffer: bytes,
+        block_number: int,
+        number_of_blocks: int = 1,
+    ) -> None:
+        if block_number < 0 or number_of_blocks < 0:
+            raise OSError(errno.EIO, os.strerror(errno.EIO))
+        if self.is_rx:
+            start_sector = block_number * BLOCK_SIZE // self.sector_size
+            for i in range(0, number_of_blocks * BLOCK_SIZE // self.sector_size):
+                blkno = start_sector + i
+                position = rxfactr(blkno, self.sector_size)
+                self.f.seek(position)  # not thread safe...
+                self.f.write(buffer[i * self.sector_size : (i + 1) * self.sector_size])
+        else:
+            super().write_block(buffer, block_number, number_of_blocks)

@@ -765,7 +765,7 @@ INITIALIZE      Writes an empty device directory on the specified volume
             target = ask("Volume? ")
         if target.endswith(":"):
             fs = self.volumes.get(target)
-            fs.initialize(**options)
+            fs.initialize(fs.dev, **options)
         else:
             filesystem_cls = None
             for k, v in FILESYSTEMS.items():
@@ -778,8 +778,7 @@ INITIALIZE      Writes an empty device directory on the specified volume
             parent_volume_id, target_path = splitdrive(target)
             parent_fs = self.volumes.get(parent_volume_id)
             target_file = parent_fs.open_file(target_path)
-            fs = filesystem_cls(target_file)
-            fs.initialize(**options)
+            fs = filesystem_cls.initialize(target_file, **options)
             fs.close()
 
     def do_cd(self, args: t.List[str]) -> None:

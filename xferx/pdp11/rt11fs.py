@@ -27,8 +27,7 @@ import sys
 import typing as t
 from datetime import date
 
-from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
-from ..block import BlockDevice
+from ..abstract import AbstractDirectoryEntry, AbstractFile
 from ..commons import (
     BLOCK_SIZE,
     READ_FILE_FULL,
@@ -37,13 +36,15 @@ from ..commons import (
     filename_match,
     word_to_bytes,
 )
-from ..rx import (
+from ..device.abstract import AbstractDevice
+from ..device.rx import (
     RX01_SECTOR_SIZE,
     RX01_SIZE,
     RX02_SECTOR_SIZE,
     RX02_SIZE,
     RX_SECTOR_TRACK,
 )
+from .abstract import AbstractRXBlockFilesystem
 from .rad50 import asc2rad, rad2asc
 
 __all__ = [
@@ -447,7 +448,7 @@ class RT11Segment(object):
         return buf.getvalue()
 
 
-class RT11Filesystem(AbstractFilesystem, BlockDevice):
+class RT11Filesystem(AbstractRXBlockFilesystem):
     """
     RT-11 Filesystem
     """
@@ -467,8 +468,8 @@ class RT11Filesystem(AbstractFilesystem, BlockDevice):
     sys_id: str = ""
 
     @classmethod
-    def mount(cls, file: "AbstractFile") -> "AbstractFilesystem":
-        self = cls(file)
+    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "RT11Filesystem":
+        self = cls(file_or_dev)
         self.read_home()
         return self
 
@@ -661,12 +662,6 @@ class RT11Filesystem(AbstractFilesystem, BlockDevice):
         entry.segment.write()
         return entry
 
-    def chdir(self, fullname: str) -> bool:
-        return False
-
-    def isdir(self, fullname: str) -> bool:
-        return False
-
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         i = 0
         files = 0
@@ -733,11 +728,15 @@ class RT11Filesystem(AbstractFilesystem, BlockDevice):
         """
         Get filesystem size in bytes
         """
-        return self.f.get_size()
+        return self.dev.get_size()
 
-    def initialize(self, **kwargs: t.Union[bool, str]) -> None:
+    @classmethod
+    def initialize(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "RT11Filesystem":
         """Write an RT–11 empty device directory"""
-        size = self.f.get_size()
+        self = cls(file_or_dev)
+        size = self.dev.get_size()
         # Adjust the size for RX01/RX02 (skip track 0)
         if size == RX01_SIZE:
             size = size - RX_SECTOR_TRACK * RX01_SECTOR_SIZE
@@ -791,12 +790,4 @@ class RT11Filesystem(AbstractFilesystem, BlockDevice):
         dir_entry.clazz = 8
         segment.entries_list.append(dir_entry)
         segment.write()
-
-    def close(self) -> None:
-        self.f.close()
-
-    def get_pwd(self) -> str:
-        return ""
-
-    def __str__(self) -> str:
-        return str(self.f)
+        return self
