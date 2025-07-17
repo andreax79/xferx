@@ -16,7 +16,8 @@ if [ ! -f "${BOOT_DISK}" ]; then
     FILENAME="${URL_REL##/*/}"
     curl -LO ${URL}
     unzip ${FILENAME}
-    mv * ..
+    mv ${BOOT_DISK} ..
+    mv tss8_init.bin ..
     cd ..
     rm -rf tmp
 fi
