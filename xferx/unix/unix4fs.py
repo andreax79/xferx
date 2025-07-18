@@ -158,7 +158,9 @@ class UNIX4Filesystem(UNIXFilesystem):
     unix_inode_class = UNIXInode4
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "UNIX4Filesystem":
+    def mount(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "UNIX4Filesystem":
         self = cls(file_or_dev)
         self.pwd = "/"
         self.read_superblock()

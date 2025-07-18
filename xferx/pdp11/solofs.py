@@ -806,7 +806,12 @@ class SOLOFilesystem(AbstractRXBlockFilesystem):
     catalog_length: int
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "SOLOFilesystem":
+    def mount(
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        strict: t.Union[bool, str] = True,
+        **kwargs: t.Union[bool, str],
+    ) -> "SOLOFilesystem":
         self = cls(file_or_dev)
         # Get catalog length
         buffer = self.read_block(CAT_ADDR)

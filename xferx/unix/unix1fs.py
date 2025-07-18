@@ -228,7 +228,9 @@ class UNIX1Filesystem(UNIXFilesystem):
     inode_bitmap_size: int  # Size of i-node bitmap
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "UNIX1Filesystem":
+    def mount(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "UNIX1Filesystem":
         self = cls(file_or_dev)
         self.pwd = "/"
         self.read_superblock()

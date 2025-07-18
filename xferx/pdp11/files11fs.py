@@ -533,7 +533,12 @@ class Files11Filesystem(AbstractRXBlockFilesystem):
     chk2: int  #     2 bytes  Second Checksum
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "Files11Filesystem":
+    def mount(
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        strict: t.Union[bool, str] = True,
+        **kwargs: t.Union[bool, str],
+    ) -> "Files11Filesystem":
         self = cls(file_or_dev)
         self.uic = DEFAULT_UIC
         self.read_home()

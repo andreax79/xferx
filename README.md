@@ -24,6 +24,7 @@ XFERX is an utility for transferring files between various file systems.
 | 4k Disk Monitor   | Yes               | Yes               | Yes               | Yes               | N/A               |
 | CAPS-8            | Yes               | Yes               | Yes               | Yes               | N/A               |
 | TSS/8             | Yes               | Yes               | Yes               | Yes               | Yes               |
+| COS-300/COS-310   | Yes               | Yes               | Yes               | Yes               | N/A               |
 | Apple II ProDOS   | Yes               | Yes               | Yes               | Yes               | Yes               |
 | Apple II Pascal   | Yes               | Yes               | Yes               | Yes               | N/A               |
 | Apple DOS 3.x     | Yes               | Yes               | Yes               | Yes               | N/A               |
@@ -211,6 +212,12 @@ PDP-8 OS/8
 
 * [OS/8 Software Support Manual](https://www.bitsavers.org/pdf/dec/pdp8/os8/DEC-S8-OSSMB-A-D_OS8_v3ssup.pdf)
 
+PDP-8 PS/8
+----------
+
+* [PS/8 8K Programming System User's Guide](https://bitsavers.org/pdf/dec/pdp8/software/DEC-08-MEFA-D_8k_Programming_System_Users_Guide.pdf)
+* [PS/8 Software Support Manual](https://bitsavers.org/pdf/dec/pdp8/ps8/DEC-08-MEXB-D_PS8_SWSupMan.pdf])
+
 PDP-8 4k Disk Monitor
 ---------------------
 
@@ -218,12 +225,17 @@ PDP-8 4k Disk Monitor
 * [PDP-8 Disc System Builder](https://svn.so-much-stuff.com/svn/trunk/pdp8/src/dec/dec-d8-sba/dec-d8-sbab-d.pdf)
 
 PDP-8 TSS/8
--------------
- 
+-----------
 
 * [TSS/8 TIME-SHARING SYSTEM USER'S GUIDE](https://bitsavers.org/pdf/dec/pdp8/tss8/DEC-T8-MRFB-D_UserGde_Feb70.pdf)
 * [System Manager's Guide for PDP-8E TSS 8.24 Monitor](https://bitsavers.org/pdf/dec/pdp8/tss8/TSS8_8.24_ManagersGuide.pdf)
 
+PDP-8 Commercial Operating System COS 300/310
+---------------------------------------------
+
+* [COS 300 System Reference Manual, 1973](https://bitsavers.org/pdf/dec/pdp8/cos-300/DEC-08-OCOSA-E-D_COS_300_System_Reference_Manual_197303.pdf)
+* [COS 300/310 System Reference Manual, 1975](https://bitsavers.org/pdf/dec/pdp8/cos-300/DEC-08-OCOSA-F_D_COS_300_310_System_Reference_Manual_Jul75.pdf)
+* [COS 310 New user's Guide, 1978](https://www.pdp8online.com/pdp8cgi/query_docs/tifftopdf.pl/pdp8docs/aa-d758a-ta.pdf)
 
 Apple II ProDOS / Apple III SOS (Sophisticated Operating System)
 ----------------------------------------------------------------

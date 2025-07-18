@@ -222,7 +222,9 @@ class AbstractFilesystem:
 
     @classmethod
     @abstractmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "AbstractFilesystem":
+    def mount(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "AbstractFilesystem":
         """Mount the filesystem"""
         pass
 

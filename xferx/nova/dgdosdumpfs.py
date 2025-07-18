@@ -512,7 +512,10 @@ class DGDOSDumpFilesystem(AbstractFilesystem):
 
     @classmethod
     def mount(
-        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        strict: t.Union[bool, str] = True,
+        **kwargs: t.Union[bool, str],
     ) -> "DGDOSDumpFilesystem":
         if not isinstance(file_or_dev, AbstractFile):
             raise OSError(errno.EIO, "Not a file")

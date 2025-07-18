@@ -1,3 +1,6 @@
+OS/8
+====
+
 Directory
 ---------
 
@@ -48,3 +51,8 @@ HELP  .HL  55           BASIC .SV   9           IDS   .SV   5
 
   36 FILES IN  437 BLOCKS -    1 FREE BLOCKS
 ```
+
+References
+----------
+
+* [OS/8 Software Support Manual](https://www.bitsavers.org/pdf/dec/pdp8/os8/DEC-S8-OSSMB-A-D_OS8_v3ssup.pdf)

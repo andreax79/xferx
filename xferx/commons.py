@@ -34,6 +34,8 @@ __all__ = [
     "swap_words",
     "word_to_bytes",
     "TrackSector",
+    "DECTAPE_EXT",
+    "DECTAPE",
 ]
 
 import fnmatch
@@ -46,6 +48,9 @@ BYTES_PER_LINE = 16
 READ_FILE_FULL = -1
 ASCII = "ASCII"  # Copy in ASCII mode
 IMAGE = "IMAGE"  # Copy in image mode
+
+DECTAPE_EXT = ["tu56"]  # DECtape file extensions
+DECTAPE = "dectape"  # DECtape device type
 
 
 def bytes_to_word(val: bytes, position: int = 0) -> int:

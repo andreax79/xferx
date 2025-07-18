@@ -276,7 +276,10 @@ class DGDOSMagTapeFilesystem(AbstractFilesystem):
 
     @classmethod
     def mount(
-        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        strict: t.Union[bool, str] = True,
+        **kwargs: t.Union[bool, str],
     ) -> "DGDOSMagTapeFilesystem":
         self = cls(file_or_dev)
         if strict:

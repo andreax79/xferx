@@ -919,7 +919,12 @@ class AppleDOSFilesystem(AbstractAppleDiskFilesystem):
     sectors_per_track: int  # Sectors per track
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "AppleDOSFilesystem":
+    def mount(
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        strict: t.Union[bool, str] = True,
+        **kwargs: t.Union[bool, str],
+    ) -> "AppleDOSFilesystem":
         self = cls(file_or_dev)
         vtoc: t.Optional[AppleDOSVTOC] = None
         # Read VTOC in DOS order

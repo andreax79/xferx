@@ -859,7 +859,12 @@ class DECSysFilesystem(AbstractFilesystem):
             raise OSError(errno.EIO, f"Invalid device type for {self.fs_description} filesystem")
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "DECSysFilesystem":
+    def mount(
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        strict: t.Union[bool, str] = True,
+        **kwargs: t.Union[bool, str],
+    ) -> "DECSysFilesystem":
         """
         Mount the filesystem from a file or device
         """

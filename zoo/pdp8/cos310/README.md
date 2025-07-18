@@ -1,8 +1,5 @@
-COS 300 System Reference Manual, 1973
-[https://bitsavers.org/pdf/dec/pdp8/cos-300/DEC-08-OCOSA-E-D_COS_300_System_Reference_Manual_197303.pdf]
-
-COS 300/310 System Reference Manual, 1975
-[https://bitsavers.org/pdf/dec/pdp8/cos-300/DEC-08-OCOSA-F_D_COS_300_310_System_Reference_Manual_Jul75.pdf]
+Commercial Operating System COS 300/310
+=======================================
 
 Startup
 -------
@@ -100,6 +97,8 @@ Show file
 The FETCH command loads the named source file into core.
 The LIST command outputs the specified lines or the entire edit buffer.
 
+Example:
+
 ```
 .FE TEST
 .LI
@@ -117,3 +116,64 @@ The LIST command outputs the specified lines or the entire edit buffer.
 0210         IF(A.LE.NUMBER)GO TO LOOP
 0220 END
 ```
+
+Compile and Run
+---------------
+
+The RUN command executes binary (B) or system (V) files.
+Source program must be compiled before it can be executed using COMP.
+Use the /N option to suppress the listing of the source file to the printer.
+When the program is compiler, it is stored in the working memory area.
+To store on the disk, use the SAVE command.
+
+Example:
+
+```
+.RUN COMP,TRMTST/N
+.SAVE TRMTST
+```
+
+```
+.FE CIAO
+.R COMP
+COS DIBOL     06-JAN-79   SAT     COMPILATION LISTING      V 8.00  PAGE
+01
+          DATA DIVISION
+
+0100  START/T
+0110          RECORD
+0120          LINE, A10, 'CIAO DIBOL'
+COS DIBOL     06-JAN-79   SAT     COMPILATION LISTING      V 8.00  PAGE
+02
+    PROCEDURE  DIVISION
+
+0130  PROC
+0140          DISPLAY(1, 1, LINE)
+0150  END
+COS DIBOL     06-JAN-79   SAT     STORAGE MAP LISTING      V 8.00  PAGE
+03
+#       NAME      TYPE       DIM    SIZE    ORIGIN
+
+0001    LINE      ALPHA       01      10     20002
+0002    ..1       DECMAL      01      01     20014                                                                                                                                                                                                          
+0002 SYMBOLS                                                                                                                                                                                                                                                
+NO ERRORS DETECTED.   08 K CORE REQUIRED [4075 FREE LOCS =14 BUFFERS]                                                                                                                                                                                       
+
+COS MONITOR  V 8.00
+>.SAVE CIAO
+REPLACE?
+Y
+
+COS MONITOR  V 8.00
+>.R CIAO
+Y  CIAO DIBOL
+COS MONITOR  V 8.00
+>.
+```
+
+References
+----------
+
+* [COS 300 System Reference Manual, 1973](https://bitsavers.org/pdf/dec/pdp8/cos-300/DEC-08-OCOSA-E-D_COS_300_System_Reference_Manual_197303.pdf)
+* [COS 300/310 System Reference Manual, 1975](https://bitsavers.org/pdf/dec/pdp8/cos-300/DEC-08-OCOSA-F_D_COS_300_310_System_Reference_Manual_Jul75.pdf)
+* [COS 310 New user's Guide, 1978](https://www.pdp8online.com/pdp8cgi/query_docs/tifftopdf.pl/pdp8docs/aa-d758a-ta.pdf)

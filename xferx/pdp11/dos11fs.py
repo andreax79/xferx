@@ -982,7 +982,12 @@ class DOS11Filesystem(AbstractRXBlockFilesystem):
     bitmap_start_block: int = 0
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "DOS11Filesystem":
+    def mount(
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        strict: t.Union[bool, str] = True,
+        **kwargs: t.Union[bool, str],
+    ) -> "DOS11Filesystem":
         self = cls(file_or_dev)
         self.uic = DEFAULT_UIC
         if strict:

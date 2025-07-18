@@ -1790,7 +1790,12 @@ class ProDOSFilesystem(AbstractAppleDiskFilesystem):
     root: "DirectoryFileEntry"  # Root directory entry
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "ProDOSFilesystem":
+    def mount(
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        strict: t.Union[bool, str] = True,
+        **kwargs: t.Union[bool, str],
+    ) -> "ProDOSFilesystem":
         self = cls(file_or_dev)
         self.pwd = "/"
         # Dummy root directory entry

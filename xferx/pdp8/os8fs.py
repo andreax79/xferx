@@ -28,9 +28,9 @@ import typing as t
 from datetime import date
 
 from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
-from ..commons import ASCII, BLOCK_SIZE, IMAGE, READ_FILE_FULL, filename_match
+from ..commons import ASCII, BLOCK_SIZE, DECTAPE, IMAGE, READ_FILE_FULL, filename_match
 from ..device.abstract import AbstractDevice
-from ..device.block_12bit import BlockDevice12Bit, RXBlockDevice12Bit
+from ..device.block_12bit import BlockDevice12Bit, DECtape12Bit, RXBlockDevice12Bit
 from ..device.rx import RX_SECTOR_TRACK
 
 __all__ = [
@@ -109,8 +109,10 @@ def os8_canonical_filename(fullname: t.Optional[str], wildcard: bool = False) ->
     except Exception:
         filename = fullname
         extension = "*" if wildcard else ""
-    filename = rad50_word12_to_asc(asc_to_rad50_word12(filename[0:3])) + rad50_word12_to_asc(
-        asc_to_rad50_word12(filename[3:6])
+    filename = (
+        rad50_word12_to_asc(asc_to_rad50_word12(filename[0:2]))
+        + rad50_word12_to_asc(asc_to_rad50_word12(filename[2:4]))
+        + rad50_word12_to_asc(asc_to_rad50_word12(filename[4:6]))
     )
     extension = rad50_word12_to_asc(asc_to_rad50_word12(extension))
     return f"{filename}.{extension}"
@@ -181,7 +183,7 @@ def from_bytes_to_12bit_words(byte_data: bytes, file_mode: str = "ASCII") -> t.L
 
 def rad50_word12_to_asc(val: int) -> str:
     """
-    Convert RAD50 12 bit word to 0-3 chars of ASCII
+    Convert RAD50 12 bit word to 0-2 chars of ASCII
     """
     t = "".join(chr(c) if c > 0o40 else chr(c + 0o100) for c in [(val >> 6), (val & 0o77)])
     return t.replace("@", "")
@@ -189,7 +191,7 @@ def rad50_word12_to_asc(val: int) -> str:
 
 def asc_to_rad50_word12(val: str) -> int:
     """
-    Convert 0-3 chars of ASCII to RAD50 12 bit word
+    Convert 0-2 chars of ASCII to RAD50 12 bit word
     """
     val = val.rjust(2, "@")
     c1 = ord(val[0])
@@ -336,6 +338,7 @@ class OS8DirectoryEntry(AbstractDirectoryEntry):
     extension: str = ""
     length: int = 0
     raw_creation_date: int = 0
+    words: t.List[int] = []
     extra_words: t.List[int] = []
     file_position: int = 0
     empty_entry: bool = False
@@ -347,6 +350,7 @@ class OS8DirectoryEntry(AbstractDirectoryEntry):
     def read(cls, segment: "OS8Segment", words: t.List[int], position: int, file_position: int) -> "OS8DirectoryEntry":
         self = cls(segment)
         if words[0 + position] != 0:
+            self.words = words[position : position + DIR_ENTRY_SIZE + segment.extra_words]
             n1 = words[0 + position]  # Filename char 1-2
             n2 = words[1 + position]  # Filename char 3-4
             n3 = words[2 + position]  # Filename char 5-6
@@ -360,11 +364,11 @@ class OS8DirectoryEntry(AbstractDirectoryEntry):
                 # to store the creation date
                 self.raw_creation_date = self.extra_words[0]
             self.length = 999
-            print(">>>", self)
             length = words[self.segment.extra_words + 4 + position]
             self.length = 0o10000 - length if length else length
         else:  # Empty entry
             length = 0o10000 - words[1 + position]
+            self.words = words[position : position + EMPTY_DIR_ENTRY_SIZE]
             self.empty_entry = True
             self.filename = ""
             self.extension = ""
@@ -390,6 +394,7 @@ class OS8DirectoryEntry(AbstractDirectoryEntry):
                 self.extra_words[0] = self.raw_creation_date
             words.extend(self.extra_words)
             words.append(0o10000 - self.length)
+        self.words = words
         return words
 
     @property
@@ -454,6 +459,7 @@ class OS8DirectoryEntry(AbstractDirectoryEntry):
         self.extra_words = []
         self.segment.compact()
         self.segment.write()
+        self.words = self.to_words()
         return True
 
     def write(self) -> bool:
@@ -481,14 +487,18 @@ class OS8Segment:
     """
     Volume Directory Segment
 
-    http://www.bitsavers.org/pdf/dec/pdp8/os8/DEC-S8-OSSMB-A-D_OS8_v3ssup.pdf Pag 62
+    OS/8 - Pag 62
+    http://www.bitsavers.org/pdf/dec/pdp8/os8/DEC-S8-OSSMB-A-D_OS8_v3ssup.pdf
+
+    COS-310 - Pag 5
+    https://svn.so-much-stuff.com/svn/trunk/pdp8/Websites/pdp-8.org/scans/highgate/cos310-docs/aa-d647a-ta-app.pdf
 
         +-----------------------------------+
       0 | Minus number of entries           |   5 words header
       1 | First file starting block         |
       2 | Link to next segment              |
-      3 | Point to last tentative file word |
-      4 | Minus number of extra words       |
+      3 | Point to last tentative file word |  (unused in COS)
+      4 | Minus number of extra words       |  (always -1 for COS)
         +-----------------------------------+
       5 |Entries                            |
         |.                                  |
@@ -532,7 +542,7 @@ class OS8Segment:
         file_position = self.data_block_number
         position = DIRECTORY_SEGMENT_HEADER_SIZE
         for _ in range(0, number_of_entries):
-            dir_entry = OS8DirectoryEntry.read(self, data, position, file_position)
+            dir_entry = self.partition.fs.directory_entry_class.read(self, data, position, file_position)
             file_position = file_position + dir_entry.length
             position = position + dir_entry.directory_entry_len
             self.entries_list.append(dir_entry)
@@ -584,6 +594,19 @@ class OS8Segment:
         """
         return (DIRECTORY_SEGMENT_SIZE - DIRECTORY_SEGMENT_HEADER_SIZE) // (DIR_ENTRY_SIZE + self.extra_words) - 1
 
+    def filter_entries_list(
+        self,
+        pattern: t.Optional[str],
+        include_all: bool = False,
+        expand: bool = True,
+        wildcard: bool = True,
+    ) -> t.Iterator["OS8DirectoryEntry"]:
+        for entry in self.entries_list:
+            if filename_match(entry.basename, pattern, wildcard):
+                if not include_all and (entry.is_empty or entry.is_tentative):
+                    continue
+                yield entry
+
     def insert_empty_entry_after(self, entry: "OS8DirectoryEntry", entry_number: int, length: int) -> None:
         """
         Insert an empty entry after the given entry
@@ -592,7 +615,7 @@ class OS8Segment:
         if entry.length == length:
             return
         # Create new empty space entry
-        new_entry = OS8DirectoryEntry(self)
+        new_entry = self.partition.fs.directory_entry_class(self)
         new_entry.empty_entry = True
         new_entry.length = entry.length - length
         new_entry.file_position = entry.file_position + length
@@ -805,9 +828,9 @@ class OS8Partition:
         segment.extra_words = 1
         # Empty directory entry
         length = self.partition_size - segment.data_block_number
-        if self.fs.dev.is_rx:
+        if getattr(self.fs.dev, "is_rx", False):
             length = length - RX_SECTOR_TRACK * self.fs.dev.sector_size // BLOCK_SIZE
-        dir_entry = OS8DirectoryEntry(segment)
+        dir_entry = self.fs.directory_entry_class(segment)
         dir_entry.empty_entry = True
         dir_entry.filename = ""
         dir_entry.extension = ""
@@ -847,10 +870,14 @@ class OS8Filesystem(AbstractFilesystem):
 
     current_partition: int  # Current partition
     number_of_blocks: int  # Number of blocks
+    directory_entry_class: t.Type[OS8DirectoryEntry] = OS8DirectoryEntry
 
-    def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"]):
+    def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"], device_type: t.Union[bool, str] = ""):
         if isinstance(file_or_device, AbstractFile):
-            self.dev = RXBlockDevice12Bit(file_or_device)
+            if device_type == DECTAPE:
+                self.dev = DECtape12Bit(file_or_device)
+            else:
+                self.dev = RXBlockDevice12Bit(file_or_device)
         elif isinstance(file_or_device, BlockDevice12Bit):
             self.dev = file_or_device
         else:
@@ -880,14 +907,39 @@ class OS8Filesystem(AbstractFilesystem):
             raise FileNotFoundError(errno.ENOENT, "Partition not found", partition_number)
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "OS8Filesystem":
+    def mount(
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        strict: t.Union[bool, str] = True,
+        device_type: t.Union[bool, str] = "",
+        **kwargs: t.Union[bool, str],
+    ) -> "OS8Filesystem":
         """
         Mount the OS/8 filesystem from a file
         """
-        self = cls(file_or_dev)
+        self = cls(file_or_dev, device_type)
         self.current_partition = 0
         self.number_of_blocks = self.dev.get_size() // BLOCK_SIZE
+        if strict:
+            try:
+                # Check if the filesystem is valid by reading the directory entries
+                self.check_os8()
+            except Exception:
+                if isinstance(file_or_dev, AbstractFile) and device_type == DECTAPE:
+                    # Try to read the device not as DECtape
+                    self.dev = RXBlockDevice12Bit(file_or_dev)
+                    self.check_os8()
+                else:
+                    raise
         return self
+
+    def check_os8(self) -> None:
+        """
+        Check if the filesystem is a valid OS/8 filesystem
+        """
+        # Check if the filesystem is valid by reading the directory entries
+        for _ in self.entries_list:
+            pass
 
     def read_words_block(self, block_number: int) -> t.List[int]:
         """
@@ -916,11 +968,12 @@ class OS8Filesystem(AbstractFilesystem):
         if pattern:
             partition, pattern = os8_split_fullname(partition, pattern, wildcard)
         for segment in self.get_partition(partition).read_dir_segments():
-            for entry in segment.entries_list:
-                if filename_match(entry.basename, pattern, wildcard):
-                    if not include_all and (entry.is_empty or entry.is_tentative):
-                        continue
-                    yield entry
+            yield from segment.filter_entries_list(
+                pattern,
+                include_all=include_all,
+                expand=expand,
+                wildcard=wildcard,
+            )
 
     @property
     def entries_list(self) -> t.Iterator["OS8DirectoryEntry"]:
@@ -983,48 +1036,54 @@ class OS8Filesystem(AbstractFilesystem):
         i = 0
         files = 0
         blocks = 0
-        unused = None
-        for x in self.filter_entries_list(pattern, include_all=True):
-            if unused is None:
-                unused = x.segment.partition.free()
-            if x.is_empty or x.is_tentative:
-                if not options.get("full"):
-                    continue
-                i = i + 1
-                fullname = "<EMPTY>  "
-                date = ""
-            else:
-                i = i + 1
-                fullname = f"{x.filename:<6}.{x.extension:<2}"
-                if options.get("brief"):
-                    # Lists only file names and file types
-                    sys.stdout.write(f"{fullname}\n")
-                    continue
-                date = x.creation_date and x.creation_date.strftime("%d-%b-%y") or ""
-                files = files + 1
-                blocks = blocks + x.length
-            date = x.creation_date and x.creation_date.strftime("%d-%b-%y").upper() or ""
-            sys.stdout.write(f"{fullname} {x.file_position:04o} {x.length:>3} {date:<9}")
-            if i % 3 == 0:
+        partition = self.current_partition
+        if pattern:
+            partition, pattern = os8_split_fullname(partition, pattern, wildcard=True)
+        part = self.get_partition(partition)
+        for segment in part.read_dir_segments():
+            for x in segment.filter_entries_list(pattern, include_all=True):
+                if x.is_empty or x.is_tentative:
+                    if not options.get("full"):
+                        continue
+                    i = i + 1
+                    fullname = "<EMPTY>  "
+                    file_date = ""
+                else:
+                    i = i + 1
+                    fullname = f"{x.filename:<6}.{x.extension:<2}"
+                    if options.get("brief"):
+                        # Lists only file names and file types
+                        sys.stdout.write(f"{fullname}\n")
+                    else:
+                        files = files + 1
+                        blocks = blocks + x.length
+                        file_date = x.creation_date and x.creation_date.strftime("%d-%b-%y").upper() or ""
+                sys.stdout.write(f"{fullname} {x.file_position:04o} {x.length:>3} {file_date:<9}")
+                if i % 3 == 0:
+                    sys.stdout.write("\n")
+                else:
+                    sys.stdout.write("  ")
+        if not options.get("brief"):
+            if i % 3 != 0:
                 sys.stdout.write("\n")
-            else:
-                sys.stdout.write("  ")
-        if options.get("brief"):
-            return
-        if i % 3 != 0:
-            sys.stdout.write("\n")
-        sys.stdout.write(f"\n{files:>4} FILES IN {blocks:>4} BLOCKS - {unused:>4} FREE BLOCKS\n")
+            unused = part.free()
+            sys.stdout.write(f"\n{files:>4} FILES IN {blocks:>4} BLOCKS - {unused:>4} FREE BLOCKS\n")
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
         if arg:
             sys.stdout.write("Filename    Type  Date       Length  Block\n")
             sys.stdout.write("--------    ----  ----       ------  -----\n")
             for entry in self.filter_entries_list(arg, include_all=True):
-                sys.stdout.write(f"{entry}\n")
+                if options.get("full"):
+                    words = [f"{x:04o}" for x in entry.words]
+                    sys.stdout.write(f"{entry}  {words}\n")
+                else:
+                    sys.stdout.write(f"{entry}\n")
         else:
+            is_rx = getattr(self.dev, "is_rx", False)
             sys.stdout.write(f"Number of partitions:     {self.num_of_partitions}\n")
             sys.stdout.write(f"Size of each partition:   {self.partition_size}\n")
-            sys.stdout.write(f"Is RX01/RX02:             {'YES' if self.dev.is_rx else 'NO'}\n")
+            sys.stdout.write(f"Is RX01/RX02:             {'YES' if is_rx else 'NO'}\n")
             for partition_number in range(0, self.num_of_partitions):
                 partition = self.get_partition(partition_number)
                 sys.stdout.write(f"{partition}\n")
@@ -1041,7 +1100,7 @@ class OS8Filesystem(AbstractFilesystem):
                 end = entry.get_length() - 1
             for block_number in range(start, end + 1):
                 words = self.read_words_block(entry.file_position + block_number)
-                print(f"\nBLOCK NUMBER   {block_number:08}")
+                sys.stdout.write(f"\nBLOCK NUMBER   {block_number:08}\n")
                 oct_dump(words)
         else:
             if start is None:
@@ -1052,7 +1111,7 @@ class OS8Filesystem(AbstractFilesystem):
                 end = start
             for block_number in range(start, end + 1):
                 words = self.read_words_block(block_number)
-                print(f"\nBLOCK NUMBER   {block_number:08}")
+                sys.stdout.write(f"\nBLOCK NUMBER   {block_number:08}\n")
                 oct_dump(words)
 
     @classmethod

@@ -27,13 +27,14 @@ from .abstract import AbstractFilesystem
 from .apple2.appledosfs import AppleDOSFilesystem
 from .apple2.pascalfs import PascalFilesystem
 from .apple2.prodosfs import ProDOSFilesystem
-from .commons import splitdrive
+from .commons import DECTAPE, DECTAPE_EXT, splitdrive
 from .native import NativeFilesystem
 from .nova.dgdosdumpfs import DGDOSDumpFilesystem
 from .nova.dgdosfs import DGDOSFilesystem
 from .nova.dgdosmagtapefs import DGDOSMagTapeFilesystem
 from .pdp7.decsysfs import DECSysFilesystem
 from .pdp7.unix0fs import UNIX0Filesystem
+from .pdp8.cos300fs import COS300Filesystem
 from .pdp8.dmsfs import DMSFilesystem
 from .pdp8.os8fs import OS8Filesystem
 from .pdp8.tss8fs import TSS8Filesystem
@@ -74,6 +75,8 @@ FILESYSTEMS: t.Dict[str, t.Type[AbstractFilesystem]] = {
     "os8": OS8Filesystem,
     "dms": DMSFilesystem,
     "tss8": TSS8Filesystem,
+    "cos300": COS300Filesystem,
+    "cos310": COS300Filesystem,
     "prodos": ProDOSFilesystem,
     "pascal": PascalFilesystem,
     "appledos": AppleDOSFilesystem,
@@ -225,9 +228,13 @@ class Volumes(object):
             raise Exception(f"?{cmd}-F-Illegal volume {logical}:")
         volume_id, fullname = splitdrive(path)
         fs = self.get(volume_id, cmd=cmd)
+        kwargs: t.Dict[str, t.Union[bool, str]] = {}
+        device_type = self.guess_device_type(fullname)
+        if device_type:
+            kwargs["device_type"] = device_type
         try:
             filesystem = FILESYSTEMS.get(fstype or "rt11", RT11Filesystem)
-            self.volumes[logical] = filesystem.mount(fs.open_file(fullname))
+            self.volumes[logical] = filesystem.mount(fs.open_file(fullname), **kwargs)
             sys.stdout.write(f"?{cmd}-I-Disk {path} mounted to {logical}:\n")
         except Exception:
             if verbose:
@@ -246,3 +253,16 @@ class Volumes(object):
         except Exception:
             raise Exception(f"?{cmd}-F-Illegal volume {volume_id}:")
         self.volumes = {k: v for k, v in self.volumes.items() if v != fs}
+
+    def guess_device_type(self, path: str) -> t.Optional[str]:
+        """
+        Guess the filesystem type based on the file extension
+        """
+        path = path.lower()
+        try:
+            _, extension = path.split(".", 1)
+        except Exception:
+            return None
+        if extension in DECTAPE_EXT:
+            return DECTAPE
+        return None

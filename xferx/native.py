@@ -189,7 +189,9 @@ class NativeDirectoryEntry(AbstractDirectoryEntry):
 class NativeFilesystem(AbstractFilesystem):
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "NativeFilesystem":
+    def mount(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "NativeFilesystem":
         if not isinstance(file_or_dev, NativeFile):
             raise OSError(errno.EIO, "Not a native file")
         return cls(base=file_or_dev.filename)

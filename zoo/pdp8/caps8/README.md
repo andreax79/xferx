@@ -1,4 +1,5 @@
-[https://bitsavers.org/pdf/dec/pdp8/caps8/DEC-8E-OCASA-B-D_CAPS8_UG.pdf]
+CAPS-8
+======
 
 Files are referenced symbolically by a name of as many as 6 alphanumeric characters,
 followed optionally by an extension of from 1 to 3 alphanumeric characters.
@@ -88,3 +89,8 @@ The Version command is used to find out the version number of the CAPS-8 current
 .V                                                                                                                             │
 V1.3
 ```
+
+References
+----------
+
+* [CAPS-8 Users Manual](https://bitsavers.org/pdf/dec/pdp8/caps8/DEC-8E-OCASA-B-D_CAPS8_UG.pdf)

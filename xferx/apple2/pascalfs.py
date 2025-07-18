@@ -551,7 +551,12 @@ class PascalFilesystem(AbstractAppleDiskFilesystem):
     volume_name: str = ""  # Volume name
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "PascalFilesystem":
+    def mount(
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        strict: t.Union[bool, str] = True,
+        **kwargs: t.Union[bool, str],
+    ) -> "PascalFilesystem":
         self = cls(file_or_dev)
         # Read volume dir
         volume_dir = VolumeDirectory.read(self)

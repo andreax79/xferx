@@ -1378,7 +1378,11 @@ class TSS8Filesystem(AbstractFilesystem):
             raise OSError(errno.EIO, f"Invalid device type for {self.fs_description} filesystem")
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "TSS8Filesystem":
+    def mount(
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        **kwargs: t.Union[bool, str],
+    ) -> "TSS8Filesystem":
         """
         Mount the TSS/8 filesystem from a file
         """

@@ -420,7 +420,9 @@ class UNIXFilesystem(AbstractBlockFilesystem):
 
     @classmethod
     @abstractmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "UNIXFilesystem":
+    def mount(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "UNIXFilesystem":
         """
         Mount the filesystem from a file or device
         """

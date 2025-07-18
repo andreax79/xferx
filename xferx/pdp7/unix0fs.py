@@ -491,7 +491,9 @@ class UNIX0Filesystem(UNIXFilesystem):
             raise OSError(errno.EIO, f"Invalid device type for {self.fs_description} filesystem")
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "UNIX0Filesystem":
+    def mount(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "UNIX0Filesystem":
         self = cls(file_or_dev)
         self.version = 0
         self.pwd = "/"

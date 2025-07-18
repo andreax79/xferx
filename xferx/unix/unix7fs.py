@@ -207,7 +207,9 @@ class UNIX7Filesystem(UNIXFilesystem):
     unix_inode_class = UNIXInode7
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "UNIX7Filesystem":
+    def mount(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "UNIX7Filesystem":
         self = cls(file_or_dev)
         self.pwd = "/"
         self.read_superblock()

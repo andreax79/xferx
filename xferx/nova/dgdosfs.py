@@ -1433,7 +1433,12 @@ class DGDOSFilesystem(AbstractBlockFilesystem):
         return False
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "DGDOSFilesystem":
+    def mount(
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        strict: t.Union[bool, str] = True,
+        **kwargs: t.Union[bool, str],
+    ) -> "DGDOSFilesystem":
         self = cls(file_or_dev)
         # Read the Disk Information Block
         disk_id = DiskInformationBlock.read(self)

@@ -414,7 +414,12 @@ class CAPS11Filesystem(AbstractFilesystem):
             raise OSError(errno.EIO, f"Invalid device type for {self.fs_description} filesystem")
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "AbstractFilesystem":
+    def mount(
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        strict: t.Union[bool, str] = True,
+        **kwargs: t.Union[bool, str],
+    ) -> "AbstractFilesystem":
         self = cls(file_or_dev)
         if strict:
             for entry in self.read_file_headers(include_eot=False):

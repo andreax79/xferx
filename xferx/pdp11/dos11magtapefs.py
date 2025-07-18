@@ -328,7 +328,10 @@ class DOS11MagTapeFilesystem(AbstractFilesystem):
 
     @classmethod
     def mount(
-        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        strict: t.Union[bool, str] = True,
+        **kwargs: t.Union[bool, str],
     ) -> "DOS11MagTapeFilesystem":
         """
         Mount the filesystem from a file or device

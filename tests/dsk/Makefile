@@ -26,5 +26,10 @@ solo.dsk:
 tss8.dsk:
 	../../xferx.py -vc "@tss8.com"
 
+.PHONY: cos300.tu56
+cos300.tu56:
+	dd bs=256256 count=1 if=/dev/zero of=cos300.tu56
+	../../xferx.py -vc "@cos300.com"
+
 ciao.apple2:
 	cl65 -v -t apple2 -u __EXEHDR__ --start-addr 8192 ciao.apple2.c -o ciao.apple2

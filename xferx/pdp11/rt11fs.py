@@ -468,7 +468,11 @@ class RT11Filesystem(AbstractRXBlockFilesystem):
     sys_id: str = ""
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"]) -> "RT11Filesystem":
+    def mount(
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        **kwargs: t.Union[bool, str],
+    ) -> "RT11Filesystem":
         self = cls(file_or_dev)
         self.read_home()
         return self

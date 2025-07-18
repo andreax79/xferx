@@ -806,7 +806,12 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
     mfd: t.Optional[MFD] = None  # Master File Directory (RDS1.1 or later)
 
     @classmethod
-    def mount(cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], strict: bool = True) -> "RSTSFilesystem":
+    def mount(
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        strict: t.Union[bool, str] = True,
+        **kwargs: t.Union[bool, str],
+    ) -> "RSTSFilesystem":
         self = cls(file_or_dev)
         self.read_disk_pack_label()
         self.ppn = DEFAULT_PPN

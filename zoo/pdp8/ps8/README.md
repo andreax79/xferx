@@ -1,10 +1,5 @@
-
-PS/8 8K Programming System User's Guide, 1971
-[https://bitsavers.org/pdf/dec/pdp8/software/DEC-08-MEFA-D_8k_Programming_System_Users_Guide.pdf]
-
-PS/8 Software Support Manual, 1972
-[https://bitsavers.org/pdf/dec/pdp8/ps8/DEC-08-MEXB-D_PS8_SWSupMan.pdf]
-
+PS/8
+====
 
 Directory
 ---------
@@ -42,3 +37,10 @@ TOG8  .SV   7 11/26/72
 
 *
 ```
+
+References
+----------
+
+* [PS/8 8K Programming System User's Guide](https://bitsavers.org/pdf/dec/pdp8/software/DEC-08-MEFA-D_8k_Programming_System_Users_Guide.pdf)
+* [PS/8 Software Support Manual](https://bitsavers.org/pdf/dec/pdp8/ps8/DEC-08-MEXB-D_PS8_SWSupMan.pdf])
+

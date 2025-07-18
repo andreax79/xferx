@@ -1,0 +1,68 @@
+TSS/8
+=====
+
+List files
+----------
+
+```
+TSS/8.24  JOB 01  [00,01]  K00    14:12:22
+
+SYSTEM IS DOWN, INC.
+
+
+.R CAT
+
+SYSTEM ACCOUNT    6-JAN-79   14:12:23
+
+ PASSWORD    CPU        DEV     DISK  QUOTA
+
+   1       00:00:12  00:07:40    18     10 (GRACE)
+   2       00:00:00  00:00:00   187   1575
+   3       00:00:00  00:00:00     2   1575
+7777       00:02:40  12:16:25    46    200
+ 110 WBCN  00:00:00  00:00:00    16    200
+2001 DT    00:00:00  00:00:00    65     75
+2002 PT    00:00:00  00:00:00    23     50
+2003 TSS8  00:14:36  15:36:57     0   1000
+2004 EDIT  00:00:00  00:09:23    84    200
+2005 4TH   01:32:09  24:57:36    77    200
+ 150 JERK  00:00:00  00:00:00     0    200
+```
+
+```
+.R CAT
+
+DISK FILES FOR USER  0, 2 ON  6-JAN-79
+
+NAME      SIZE  PROT    DATE
+PALD  .SAV  16   12  31-MAR-76
+LOADER.SAV   4   12  31-MAR-76
+FORT  .SAV   6   12  31-MAR-76
+FOSL  .SAV   6   12  31-MAR-76
+PIP   .SAV  10   12  31-MAR-76
+TSTLPT.SAV   2   12  31-MAR-76
+LOGOUT.SAV   6   12  31-MAR-76
+SYSTAT.SAV   5   12  31-MAR-76
+EDIT  .SAV   8   12  31-MAR-76
+FOCAL .SAV  16   12  31-MAR-76
+BASIC .SAV  38   12  31-MAR-76
+COPY  .SAV  10   12  31-MAR-76
+CAT   .SAV   6   12  31-MAR-76
+GRIPE .SAV   5   12  31-MAR-76
+LOGID .SAV   4   12  31-MAR-76
+PUTR  .SAV  21   12   3-FEB-84
+ODTHI .SAV   2   12  29-FEB-84
+FLAP  .SAV   1   12   7-APR-84
+PTLOAD.SAV   1   12  29-APR-84
+BLANK .SAV   1   12   9-JUN-84
+DTTEST.SAV   2   12  26-JUN-84
+INIT  .SAV  17   12  29-JUL-84
+
+TOTAL DISK SEGMENTS:  187    QUOTA: 1575
+```
+
+References
+----------
+
+* [TSS/8 TIME-SHARING SYSTEM USER'S GUIDE](https://bitsavers.org/pdf/dec/pdp8/tss8/DEC-T8-MRFB-D_UserGde_Feb70.pdf)
+* [System Manager's Guide for PDP-8E TSS 8.24 Monitor](https://bitsavers.org/pdf/dec/pdp8/tss8/TSS8_8.24_ManagersGuide.pdf)
