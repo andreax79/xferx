@@ -1,0 +1,10 @@
+CREATE/ALLOCATE:1152 adss.dtp
+INITIALIZE/ADSS adss.dtp
+MOUNT/ADSS pr: adss.dtp
+COPY/ASCII data/1.txt pr:F1;SRC
+COPY/ASCII data/10.txt pr:F10;SRC
+COPY/ASCII data/100.txt pr:F100;SRC
+COPY data/1.b18 pr:B1;BIN
+COPY data/10.b18 pr:B10;BIN
+COPY data/100.b18 pr:B100;BIN
+COPY data/1000.b18 pr:B1000;BIN

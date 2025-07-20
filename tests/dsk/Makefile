@@ -31,5 +31,9 @@ cos300.tu56:
 	dd bs=256256 count=1 if=/dev/zero of=cos300.tu56
 	../../xferx.py -vc "@cos300.com"
 
+.PHONY: adss.dtp
+adss.dtp:
+	../../xferx.py -vc "@adss.com"
+
 ciao.apple2:
 	cl65 -v -t apple2 -u __EXEHDR__ --start-addr 8192 ciao.apple2.c -o ciao.apple2

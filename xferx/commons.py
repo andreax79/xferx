@@ -19,29 +19,32 @@
 # THE SOFTWARE.
 
 __all__ = [
-    "BLOCK_SIZE",
     "ASCII",
+    "BLOCK_SIZE",
+    "DECTAPE",
+    "DECTAPE_EXT",
     "IMAGE",
     "READ_FILE_FULL",
+    "BlockDirection",
+    "Direction",
     "PartialMatching",
+    "TrackSector",
     "bytes_to_word",
-    "date_to_rt11",
     "dump_struct",
     "filename_match",
     "getch",
     "hex_dump",
+    "pairwise",
     "splitdrive",
     "swap_words",
     "word_to_bytes",
-    "TrackSector",
-    "DECTAPE_EXT",
-    "DECTAPE",
 ]
 
 import fnmatch
 import sys
 import typing as t
-from datetime import date
+from dataclasses import dataclass
+from enum import Enum
 
 BLOCK_SIZE = 512
 BYTES_PER_LINE = 16
@@ -76,21 +79,6 @@ def splitdrive(path: str) -> t.Tuple[str, str]:
         return ("DK", path)
     else:
         return (result[0].upper(), result[1])
-
-
-def date_to_rt11(val: t.Optional[date]) -> int:
-    """
-    Translate Python date to RT-11 date
-    """
-    if val is None:
-        return 0
-    age = (val.year - 1972) // 32
-    if age < 0:
-        age = 0
-    elif age > 3:
-        age = 3
-    year = (val.year - 1972) % 32
-    return year + (val.day << 5) + (val.month << 10) + (age << 14)
 
 
 def swap_words(val: int) -> int:
@@ -181,8 +169,59 @@ class PartialMatching:
 
 
 class TrackSector(t.NamedTuple):
+    """
+    A track/sector pair
+    """
+
     track: int
     sector: int
 
     def __repr__(self) -> str:
         return f"{self.track}/{self.sector}"
+
+
+T = t.TypeVar('T')
+
+
+def pairwise(iterator: t.Iterable[T]) -> t.Iterator[t.Tuple[T, T]]:
+    """
+    Iterate over an iterable in pairs.
+    """
+    it = iter(iterator)
+    while True:
+        try:
+            yield next(it), next(it)
+        except StopIteration:
+            break
+
+
+class Direction(Enum):
+    """
+    The direction of a block transfer
+    """
+
+    FORWARD = 0
+    BACKWARD = 1
+
+    def reverse(self) -> "Direction":
+        """
+        Reverse the direction
+        """
+        return Direction.BACKWARD if self == Direction.FORWARD else Direction.FORWARD
+
+
+@dataclass
+class BlockDirection:
+    """
+    A block number with a direction
+    """
+
+    block_number: int
+    direction: Direction
+
+    def __str__(self) -> str:
+        prefix = "F" if self.direction == Direction.FORWARD else "D"
+        return f"{prefix}{self.block_number}"
+
+    def __repr__(self) -> str:
+        return str(self)

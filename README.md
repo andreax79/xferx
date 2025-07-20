@@ -15,6 +15,8 @@ XFERX is an utility for transferring files between various file systems.
 | SOLO              | Yes               | Yes               | Yes               | Yes               | N/A               |
 | PDP-7 UNIX v0     | Yes               | No                | No                | No                | No                |
 | PDP-7 DECSys      | Yes               | Yes               | Yes               | No                | No                |
+| PDP-9/15 ADSS     | Yes               | Yes               | Yes               | Yes               | N/A               |
+| PDP-15 DOS-15     | Yes               | No                | No                | No                | No                |
 | UNIX v1           | Yes               | No                | No                | No                | No                |
 | UNIX v5           | Yes               | No                | No                | No                | No                |
 | UNIX v6           | Yes               | No                | No                | No                | No                |
@@ -206,6 +208,20 @@ PDP-7 DECSys
 
 * [DECSys-7 Operating Manual](http://bitsavers.informatik.uni-stuttgart.de/pdf/dec/pdp7/DEC-07-SDDA-D_DECSYS7_Nov66.pdf)
 * [Technical Notes on DECsys](https://simh.trailing-edge.com/docs/decsys.pdf)
+
+PDP-9/PDP-15 Advanced Software System
+-------------------------------------
+
+* [PDP-9 Advanced Software System Monitors](https://bitsavers.org/pdf/dec/pdp9/DEC-9A-MAD0-D.pdf)
+* [PDP-9 Advanced System Software Keyboard Monitor Guide](https://bitsavers.org/pdf/dec/pdp9/DEC-9A-NGBA-D.pdf)
+* [PDP-15 Advanced Monitor Software System for PDP-1S/20/30/40 Programmer's Reference Manual](https://bitsavers.org/pdf/dec/pdp15/DEC-15-MR2B-D_AdvMonPgmRef.pdf)
+
+PDP-15 DOS-15
+-------------
+
+* [DOS-15 Users Manual](https://bitsavers.org/pdf/dec/pdp15/DEC-15-ODUMA-A_DOS-15_Users_Manual_197212.pdf)
+* [DOS-15 System Manual](https://bitsavers.org/pdf/dec/pdp15/DEC-15-ODFFA-A_DOS15_SysMan.pdf)
+* [PDP-15 Utility Programs](https://bitsavers.org/pdf/dec/pdp15/DEC-15-YWZA-D_PDP-15_Utility_Programs_196910.pdf)
 
 PDP-8 OS/8
 ----------

@@ -60,11 +60,15 @@ COS_INDEX = {ch: i for i, ch in enumerate(COS_CODES) if ch}
 
 
 def split_ext(fullname: str) -> t.Tuple[str, str]:
+    """
+    Split a fullname into the filename and extension.
+    """
     fullname = fullname.upper()
     try:
-        return fullname.split(".", 1)
+        filename, extension = fullname.split(".", 1)
+        return filename, extension
     except Exception:
-        return fullname, ""
+        return (fullname, "")
 
 
 def cos_file_type_to_os8_extension(file_type: str) -> str:

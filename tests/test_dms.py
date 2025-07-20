@@ -347,9 +347,9 @@ def test_dms():
 
 def test_dms_write_file():
     shell = Shell(verbose=True)
-    shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
-    shell.onecmd(f"mount t: /dms {DSK}.mo", batch=True)
-    fs = shell.volumes.get('T')
+    shell.onecmd(f"copy {DSK} {DSK}_2.mo", batch=True)
+    shell.onecmd(f"mount dms2: /dms {DSK}_2.mo", batch=True)
+    fs = shell.volumes.get('DMS2')
     assert isinstance(fs, DMSFilesystem)
 
     block_size = 256
@@ -393,3 +393,6 @@ def test_dms_write_file():
         block_data = f.read_block(i * 2, number_of_blocks=2)
         assert block_data == chr(i + 65).encode("ascii") * block_size * 2
     f.close()
+
+    shell.onecmd("dismount dms2:", batch=True)
+    shell.onecmd(f"del {DSK}_2.mo", batch=True)

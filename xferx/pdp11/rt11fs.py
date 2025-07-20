@@ -32,7 +32,6 @@ from ..commons import (
     BLOCK_SIZE,
     READ_FILE_FULL,
     bytes_to_word,
-    date_to_rt11,
     filename_match,
     word_to_bytes,
 )
@@ -65,6 +64,21 @@ E_PERM = 4  # Permanent file
 E_EOS = 8  # End-of-segment marker
 E_READ = 64  # Protected from write
 E_PROT = 128  # Protected permanent file
+
+
+def date_to_rt11(val: t.Optional[date]) -> int:
+    """
+    Translate Python date to RT-11 date
+    """
+    if val is None:
+        return 0
+    age = (val.year - 1972) // 32
+    if age < 0:
+        age = 0
+    elif age > 3:
+        age = 3
+    year = (val.year - 1972) % 32
+    return year + (val.day << 5) + (val.month << 10) + (age << 14)
 
 
 def rt11_to_date(val: int) -> t.Optional[date]:

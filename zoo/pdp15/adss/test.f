@@ -1,0 +1,8 @@
+C
+C   SAMPLE FORTRAN PROGRAM
+C
+      DO 1 I=1,10
+   1  WRITE(4,100) I
+ 100  FORMAT(6X,I3)
+      STOP 12345
+      END

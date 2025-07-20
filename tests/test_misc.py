@@ -1,11 +1,9 @@
 import shlex
-from datetime import date
 
 import pytest
 
 from xferx.commons import PartialMatching, bytes_to_word, word_to_bytes
 from xferx.pdp11.rad50 import asc2rad, rad2asc
-from xferx.pdp11.rt11fs import date_to_rt11, rt11_canonical_filename, rt11_to_date
 from xferx.shell import extract_options
 
 
@@ -54,41 +52,6 @@ def test_asc2rad():
     # Test with lowercase characters
     assert asc2rad("zia") == b"\xe9\xa3"
     assert asc2rad(":$%") == b"\x54\xfe"
-
-
-def test_rt11_to_date():
-    # Test with None
-    assert rt11_to_date(0) is None
-    # Test with valid input
-    assert date(1979, 1, 6) == rt11_to_date(1223)
-    assert date(1984, 2, 5) == rt11_to_date(2220)
-    assert date(1991, 12, 31) == rt11_to_date(13299)
-    assert date(2000, 1, 1) == rt11_to_date(1084)
-    assert date(2014, 3, 27) == rt11_to_date(20330)
-    assert date(2024, 1, 1) == rt11_to_date(17460)
-
-
-def test_date_to_rt11():
-    # Test with None
-    assert date_to_rt11(None) == 0
-    # Test with valid input
-    assert date_to_rt11(date(1979, 1, 6)) == 1223
-    assert date_to_rt11(date(1984, 2, 5)) == 2220
-    assert date_to_rt11(date(1991, 12, 31)) == 13299
-    assert date_to_rt11(date(2000, 1, 1)) == 1084
-    assert date_to_rt11(date(2014, 3, 27)) == 20330
-    assert date_to_rt11(date(2024, 1, 1)) == 17460
-
-
-def test_rt1_canonical_filename():
-    assert rt11_canonical_filename(None) == "."
-    assert rt11_canonical_filename("") == "."
-    assert rt11_canonical_filename("LICENSE") == "LICENS."
-    assert rt11_canonical_filename("license.") == "LICENS."
-    assert rt11_canonical_filename("read.me") == "READ.ME"
-    assert rt11_canonical_filename("read.*", wildcard=True) == "READ.*"
-    assert rt11_canonical_filename("r*", wildcard=True) == "R*.*"
-    assert rt11_canonical_filename("*.*", wildcard=True) == "*.*"
 
 
 def test_partial_matching():

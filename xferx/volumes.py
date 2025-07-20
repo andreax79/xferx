@@ -45,6 +45,8 @@ from .pdp11.files11fs import Files11Filesystem
 from .pdp11.rstsfs import RSTSFilesystem
 from .pdp11.rt11fs import RT11Filesystem
 from .pdp11.solofs import SOLOFilesystem
+from .pdp15.adssfs import ADSSFilesystem
+from .pdp15.dos15fs import DOS15Filesystem
 from .unix.unix1fs import UNIX1Filesystem
 from .unix.unix5fs import UNIX5Filesystem
 from .unix.unix6fs import UNIX6Filesystem
@@ -77,6 +79,8 @@ FILESYSTEMS: t.Dict[str, t.Type[AbstractFilesystem]] = {
     "tss8": TSS8Filesystem,
     "cos300": COS300Filesystem,
     "cos310": COS300Filesystem,
+    "adss": ADSSFilesystem,
+    "dos15": DOS15Filesystem,
     "prodos": ProDOSFilesystem,
     "pascal": PascalFilesystem,
     "appledos": AppleDOSFilesystem,

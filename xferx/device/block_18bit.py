@@ -23,17 +23,19 @@ import os
 import struct
 import typing as t
 
-from ..commons import ASCII, IMAGE
+from ..commons import ASCII, IMAGE, BlockDirection, Direction
 from .block import BlockDevice
 
 if t.TYPE_CHECKING:
     from ..abstract import AbstractFile
 
 __all__ = [
+    "BYTES_PER_WORD_18BIT",
+    "WORDS_PER_BLOCK",
     "BlockDevice18Bit",
     "from_18bit_words_to_bytes",
     "from_bytes_to_18bit_words",
-    "BYTES_PER_WORD_18BIT",
+    "reverse_word",
 ]
 
 
@@ -73,6 +75,22 @@ def from_bytes_to_18bit_words(data: bytes, file_type: str = ASCII) -> t.List[int
     return words
 
 
+def reverse_word(w: int) -> int:
+    """
+    Reverse the order of bits in a 18-bit word
+    (used for backward reading/writing of DECtape blocks)
+    """
+    w = ~w
+    return (
+        ((w & 0o700000) >> 15)
+        | ((w & 0o070000) >> 9)
+        | ((w & 0o007000) >> 3)
+        | ((w & 0o000700) << 3)
+        | ((w & 0o000070) << 9)
+        | ((w & 0o000007) << 15)
+    )
+
+
 class BlockDevice18Bit(BlockDevice):
     """
     Block device for 18-bit mode
@@ -101,26 +119,45 @@ class BlockDevice18Bit(BlockDevice):
 
     def read_words_block(
         self,
-        block_number: int,
+        block: t.Union[int, BlockDirection],
     ) -> t.List[int]:
         """
         Read a 256 bytes block as 18bit words
+
+        It is possible to read data from a DECtape in backward direction.
+        However, a re-ordering of both the entire block and individual words is required.
+
+        Pag 75
+        https://bitsavers.org/pdf/dec/pdp15/DEC-15-H2DC-D_usersVol2.pdf
         """
-        print(f"Reading block {block_number} as 18bit words")
+        block_number: int = block.block_number if isinstance(block, BlockDirection) else block
+        direction = block.direction if isinstance(block, BlockDirection) else Direction.FORWARD
+        # Read the block
         self.f.seek(block_number * self.words_per_block * BYTES_PER_WORD_18BIT)
         buffer = self.f.read(self.words_per_block * BYTES_PER_WORD_18BIT)
         if len(buffer) < self.words_per_block * BYTES_PER_WORD_18BIT:
             raise OSError(errno.EIO, os.strerror(errno.EIO))
-        return list(struct.unpack(f"{self.words_per_block}I", buffer))
+        words = list(struct.unpack(f"{self.words_per_block}I", buffer))
+        # If the direction is backward, reverse the order of words and each word
+        if direction == Direction.FORWARD:
+            return words
+        else:  # Direction.BACKWARD
+            return [reverse_word(w) for w in reversed(words)]
 
     def write_words_block(
         self,
-        block_number: int,
+        block: t.Union[int, BlockDirection],
         words: t.List[int],
     ) -> None:
         """
         Write 256 18bit words as a block
         """
+        block_number: int = block.block_number if isinstance(block, BlockDirection) else block
+        direction = block.direction if isinstance(block, BlockDirection) else Direction.FORWARD
+        # If the direction is backward, reverse the order of words and each word
+        if direction == Direction.BACKWARD:
+            words = [reverse_word(w) for w in reversed(words)]
+        # Write the block
         self.f.seek(block_number * self.words_per_block * BYTES_PER_WORD_18BIT)
         buffer = struct.pack(f"{self.words_per_block}I", *words)
         self.f.write(buffer)
