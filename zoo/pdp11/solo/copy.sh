@@ -1,5 +1,5 @@
 #!/bin/bash -
-xferx=../../xferx.py
+xferx=../../../xferx.py
 source=solo.dsk
 target=target.dsk
 cmd="$xferx --solo $source --solo $target"
