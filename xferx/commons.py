@@ -34,6 +34,7 @@ __all__ = [
     "filename_match",
     "getch",
     "hex_dump",
+    "pad_words",
     "pairwise",
     "splitdrive",
     "swap_words",
@@ -52,7 +53,7 @@ READ_FILE_FULL = -1
 ASCII = "ASCII"  # Copy in ASCII mode
 IMAGE = "IMAGE"  # Copy in image mode
 
-DECTAPE_EXT = ["tu56"]  # DECtape file extensions
+DECTAPE_EXT = ["tu56", "tap", "dta"]  # DECtape file extensions
 DECTAPE = "dectape"  # DECtape device type
 
 
@@ -86,6 +87,13 @@ def swap_words(val: int) -> int:
     Swap high order and low order word in a 32-bit integer
     """
     return (val >> 16) + ((val & 0xFFFF) << 16)
+
+
+def pad_words(words: t.List[int], size: int) -> t.List[int]:
+    """
+    Pad a list of words to a given size with zeros
+    """
+    return words + [0] * (size - len(words))
 
 
 def hex_dump(data: bytes, bytes_per_line: int = BYTES_PER_LINE) -> None:

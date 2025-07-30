@@ -1,9 +1,10 @@
-Running DOS/Batch-11
---------------------
+DOS/Batch-11
+============
 
 Startup
 -------
 
+```
 DOS/B00CH V10-01A
 DATE: 06-JAN-79
 TIME: 00:00
@@ -12,10 +13,12 @@ DIALOGUE?
 $LO 1,1
 DATE:-06-JAN-79
 TIME:-00:00:02
+```
 
 List files
 ----------
 
+```
 $R PIP
 PIP V10-03A
 #/DI
@@ -42,20 +45,24 @@ CREF  .LDA     9C 05-NOV-98 <233>
 
 TOTL BLKS:   482
 TOTL FILES:   14
+```
 
 List UIC
 --------
 
+```
 #/UIC
 
 DK0:
 
 [  1,1  ]
 [200,200]
+```
 
 List DecTape
 ------------
 
+```
 #DT0:/DI
 
 DIRECTORY DT0: [  1,1  ]
@@ -74,28 +81,42 @@ DIRECTORY DT0: [  1,1  ]
 
 FREE BLKS:   395
 FREE FILES:   47
+```
 
 Format DK1:
 -----------
+
+```
 #DK1:/ZE
 
-CONFIRM: H
+CONFIRM: H  (H for high density, L for low density)
+```
 
 Initialize user directory
 -------------------------
+
+```
 #[30,50]/EN
+```
 
 Copy file
 ---------
+
+```
 #DK0:A.B[30,50]<DK0:FOO.BAR[1,1]
+```
 
 Copy to a contiguous file
 -------------------------
+
+```
 #DK1:[100,100]<DT0:500.TXT/CO
+```
 
 List Magtape
 ------------
 
+```
 #MT0:/DI
 
 DIRECTORY MT0: [  1,1  ]
@@ -114,4 +135,4 @@ DIRECTORY MT0: [  1,1  ]
 
 TOTL BLKS:   167
 TOTL FILES:    9
-
+```

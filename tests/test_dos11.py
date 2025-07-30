@@ -75,12 +75,12 @@ def test_dos11_bitmap():
     assert e is not None
     assert e.contiguous
 
-    # Test get_bit
+    # Test is_free
     bitmap = fs.read_bitmap()
     for i in range(e.start_block, e.start_block + e.length):
-        assert bitmap.get_bit(i)
-    assert not bitmap.get_bit(187)
-    assert not bitmap.get_bit(4649)
+        assert not bitmap.is_free(i)
+    assert bitmap.is_free(187)
+    assert bitmap.is_free(4649)
 
     # Test find_contiguous_blocks
     assert bitmap.find_contiguous_blocks(10) == 4640
@@ -160,7 +160,7 @@ def test_dos11_create_uic():
     shell.onecmd(f"mount t: /dos11 {DSK}.mo", batch=True)
     fs = shell.volumes.get('T')
     assert isinstance(fs, DOS11Filesystem)
-    # Delete the UIC
+    # Create the UIC
     shell.onecmd("create /directory t:[10,20]", batch=True)
     with pytest.raises(Exception):
         shell.onecmd("create /directory t:[10,20]", batch=True)
@@ -173,3 +173,23 @@ def test_dos11_create_uic():
         fs.get_file_entry("[10,20]test")
     with pytest.raises(Exception):
         shell.onecmd("delete t:[10,20]", batch=True)
+
+
+def test_dos11_init():
+    shell = Shell(verbose=True)
+    shell.onecmd(f"mount in: /dos11 {DSK}", batch=True)
+    shell.onecmd(f"create /allocate:2400 {DSK}.mo", batch=True)
+    shell.onecmd(f"init /dos11 {DSK}.mo", batch=True)
+    shell.onecmd(f"mount ou: /dos11 {DSK}.mo", batch=True)
+    shell.onecmd("dir ou:", batch=True)
+    shell.onecmd("copy in:* ou:", batch=True)
+    fs = shell.volumes.get('OU')
+    assert isinstance(fs, DOS11Filesystem)
+
+    # Create the UIC
+    shell.onecmd("create /directory ou:[10,20]", batch=True)
+    with pytest.raises(Exception):
+        shell.onecmd("create /directory ou:[10,20]", batch=True)
+    shell.onecmd("create ou:[10,20]test /allocate:5", batch=True)
+    fs.get_file_entry("[10,20]test")
+    shell.onecmd("dir ou:[10,20]", batch=True)

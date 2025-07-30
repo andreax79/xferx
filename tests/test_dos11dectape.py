@@ -66,3 +66,23 @@ def test_dos11_dectape_bitmap():
     assert len(x2) == 440
     for i in range(0, 10):
         assert f"{i:5d} ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890".encode("ascii") in x2
+
+
+def test_dos11_init():
+    shell = Shell(verbose=True)
+    shell.onecmd(f"mount in: /dos11 {DSK}", batch=True)
+    shell.onecmd(f"create /allocate:576 {DSK}.mo", batch=True)
+    shell.onecmd(f"init /dos11 /type:dectape {DSK}.mo", batch=True)
+    shell.onecmd(f"mount ou: /dos11 {DSK}.mo", batch=True)
+    shell.onecmd("dir ou:", batch=True)
+    shell.onecmd("copy in:* ou:", batch=True)
+    fs = shell.volumes.get('OU')
+    assert isinstance(fs, DOS11Filesystem)
+
+    # Create the UIC
+    shell.onecmd("create /directory ou:[10,20]", batch=True)
+    with pytest.raises(Exception):
+        shell.onecmd("create /directory ou:[10,20]", batch=True)
+    shell.onecmd("create ou:[10,20]test /allocate:5", batch=True)
+    fs.get_file_entry("[10,20]test")
+    shell.onecmd("dir ou:[10,20]", batch=True)

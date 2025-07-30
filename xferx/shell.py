@@ -749,14 +749,19 @@ INITIALIZE      Writes an empty device directory on the specified volume
         Any data on the volume is lost.
         See the SHOW FILESYSTEMS command for a list of filesystems.
 
+  EXAMPLES
+        INIT /DOS11 /TYPE:dectape test.tap
+
   OPTIONS
    NAME:name
         Specifies the volume name
+   TYPE:device type
+        Specifies the device type, if supported by the target filesystem.
 
         """
         # fmt: on
         fs_args = [f"/{x}" for x in FILESYSTEMS.keys()]
-        args, options = extract_options(args, "/name", *fs_args)
+        args, options = extract_options(args, "/name", "/type", *fs_args)
         if len(args) > 1:
             sys.stdout.write("?INITIALIZE-F-Too many arguments\n")
             return
@@ -764,6 +769,8 @@ INITIALIZE      Writes an empty device directory on the specified volume
         if not target:
             target = ask("Volume? ")
         if target.endswith(":"):
+            if "type" in options:
+                options["device_type"] = options["type"].lower()
             fs = self.volumes.get(target)
             fs.initialize(fs.dev, **options)
         else:
@@ -778,6 +785,12 @@ INITIALIZE      Writes an empty device directory on the specified volume
             parent_volume_id, target_path = splitdrive(target)
             parent_fs = self.volumes.get(parent_volume_id)
             target_file = parent_fs.open_file(target_path)
+            if "type" in options:
+                device_type = options["type"].lower()
+            else:
+                device_type = self.volumes.guess_device_type(target_path)
+            if device_type:
+                options["device_type"] = device_type
             fs = filesystem_cls.initialize(target_file, **options)
             fs.close()
 
