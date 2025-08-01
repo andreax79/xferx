@@ -631,11 +631,17 @@ MOUNT           Assigns a logical disk unit to a file
         MOUNT AB: SY:rt11v503.dsk
         MOUNT /DOS11 AB: SY:dos.dsk
         MOUNT /UNIX7 AB: SY:unix7.dsk
+        MOUNT /DMS /DEV:DECTAPE AB: SY:dms.tu56
+
+  OPTIONS
+   DEV:device type
+        Specifies the device type, if supported by the target filesystem.
 
         """
         # fmt: on
         fs_args = [f"/{x}" for x in FILESYSTEMS.keys()]
-        args, options = extract_options(args, *fs_args)
+        args, options = extract_options(args, "/dev", *fs_args)
+        device_type = options["dev"].lower() if "dev" in options else None
         if len(args) > 2:
             sys.stdout.write("?MOUNT-F-Too many arguments\n")
             return
@@ -650,7 +656,7 @@ MOUNT           Assigns a logical disk unit to a file
             if options.get(filesystem):
                 fstype = filesystem
                 break
-        self.volumes.mount(path, logical, fstype=fstype, verbose=self.verbose)
+        self.volumes.mount(path, logical, fstype=fstype, verbose=self.verbose, device_type=device_type)
 
     @flgtxt("DIS_MOUNT")
     def do_dismount(self, args: t.List[str]) -> None:
@@ -750,18 +756,18 @@ INITIALIZE      Writes an empty device directory on the specified volume
         See the SHOW FILESYSTEMS command for a list of filesystems.
 
   EXAMPLES
-        INIT /DOS11 /TYPE:dectape test.tap
+        INIT /DOS11 /DEV:dectape test.tap
 
   OPTIONS
    NAME:name
         Specifies the volume name
-   TYPE:device type
+   DEV:device type
         Specifies the device type, if supported by the target filesystem.
 
         """
         # fmt: on
         fs_args = [f"/{x}" for x in FILESYSTEMS.keys()]
-        args, options = extract_options(args, "/name", "/type", *fs_args)
+        args, options = extract_options(args, "/name", "/dev", *fs_args)
         if len(args) > 1:
             sys.stdout.write("?INITIALIZE-F-Too many arguments\n")
             return
@@ -769,8 +775,8 @@ INITIALIZE      Writes an empty device directory on the specified volume
         if not target:
             target = ask("Volume? ")
         if target.endswith(":"):
-            if "type" in options:
-                options["device_type"] = options["type"].lower()
+            if "dev" in options:
+                options["device_type"] = options["dev"].lower()
             fs = self.volumes.get(target)
             fs.initialize(fs.dev, **options)
         else:
@@ -785,8 +791,8 @@ INITIALIZE      Writes an empty device directory on the specified volume
             parent_volume_id, target_path = splitdrive(target)
             parent_fs = self.volumes.get(parent_volume_id)
             target_file = parent_fs.open_file(target_path)
-            if "type" in options:
-                device_type = options["type"].lower()
+            if "dev" in options:
+                device_type = options["dev"].lower()
             else:
                 device_type = self.volumes.guess_device_type(target_path)
             if device_type:

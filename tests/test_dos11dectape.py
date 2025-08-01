@@ -72,7 +72,7 @@ def test_dos11_init():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount in: /dos11 {DSK}", batch=True)
     shell.onecmd(f"create /allocate:576 {DSK}.mo", batch=True)
-    shell.onecmd(f"init /dos11 /type:dectape {DSK}.mo", batch=True)
+    shell.onecmd(f"init /dos11 /dev:dectape {DSK}.mo", batch=True)
     shell.onecmd(f"mount ou: /dos11 {DSK}.mo", batch=True)
     shell.onecmd("dir ou:", batch=True)
     shell.onecmd("copy in:* ou:", batch=True)

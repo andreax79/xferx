@@ -24,13 +24,12 @@ import io
 import math
 import os
 import re
-import struct
 import sys
 import typing as t
 from datetime import date
 
 from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
-from ..commons import ASCII, IMAGE, READ_FILE_FULL
+from ..commons import ASCII, DECTAPE, IMAGE, READ_FILE_FULL
 from ..device.abstract import AbstractDevice
 from ..device.block_12bit import BlockDevice12Bit, RXBlockDevice12Bit
 
@@ -47,13 +46,22 @@ __all__ = [
 # https://svn.so-much-stuff.com/svn/trunk/pdp8/src/dec/dec-d8-sba/dec-d8-sbab-d.pdf
 
 
-BLOCK_SIZE_WORD = 129  # Block size (in words)
+BLOCK_SIZE_WORDS = 129  # Block size (in words)
 BYTES_PER_WORD = 2  # Each word is encoded in 2 bytes
-DATA_BLOCK_SIZE_WORD = BLOCK_SIZE_WORD - 1  # The last word of the block is the link to the next block
+DATA_BLOCK_SIZE_WORDS = BLOCK_SIZE_WORDS - 1  # The last word of the block is the link to the next block
 
 DN_ENTRY_SIZE = 5  # DN entry size (words)
 DN_ENTRIES = 25  # Number of directory entries
 DN_START = 0o177  # DN start block number
+SAM_START = DN_START + 1  # SAM start block number
+
+DN_BLOCKS = [DN_START, DN_START + 2, DN_START + 3]
+SAM_BLOCK = [SAM_START]  # SAM blocks
+SCRATCH_BLOCKS = [0o373, 0o374, 0o375]  # [251, 252, 253, 254, 255]
+
+DECTAPE_SCRATCH_BLOCKS = [0o5, 0o6, 0o7]  # DECTAPE scratch blocks
+DECTAPE_DN_BLOCKS = [DN_START, 0o201, 0o207]  # DECTAPE DN blocks
+DECTAPE_SAM_BLOCKS = [SAM_START, 0o203, 0o204, 0o205, 0o206, 0o207]  # DECTAPE SAM blocks
 
 EMPTY_FILE_NUMBER = 0  # Empty file number
 RESERVED_FILE_NUMBER = 1  # Reserved for monitor, DN, SAM, and scratch blocks
@@ -325,7 +333,7 @@ class DMSFile(AbstractFile):
         # Get the blocks to be read
         blocks = list(self.entry.get_blocks())[block_number : block_number + number_of_blocks]
         for disk_block_number in blocks:
-            words = self.entry.dn.fs.read_12bit_words_block(disk_block_number)
+            words = self.entry.dn.fs.read_words_block(disk_block_number)
             # Skip the last word of the block (the link to the next block)
             t = from_12bit_words_to_bytes(words[:-1], self.file_mode)
             data.extend(t)
@@ -352,11 +360,11 @@ class DMSFile(AbstractFile):
         blocks = list(self.entry.get_blocks())[block_number : block_number + number_of_blocks]
         # Write the blocks
         for i, disk_block_number in enumerate(blocks):
-            block_words = words[i * DATA_BLOCK_SIZE_WORD : (i + 1) * DATA_BLOCK_SIZE_WORD]
-            block_words.extend([0] * (BLOCK_SIZE_WORD - len(block_words)))
+            block_words = words[i * DATA_BLOCK_SIZE_WORDS : (i + 1) * DATA_BLOCK_SIZE_WORDS]
+            block_words.extend([0] * (BLOCK_SIZE_WORDS - len(block_words)))
             # The last word of the block is the link to the next block
             block_words[-1] = blocks[i + 1] if i + 1 < len(blocks) else 0
-            self.entry.dn.fs.write_12bit_words_block(disk_block_number, block_words)
+            self.entry.dn.fs.write_words_block(disk_block_number, block_words)
 
     def get_size(self) -> int:
         """
@@ -430,11 +438,23 @@ class StorageAllocationMapBlock:
         self = cls(fs)
         self.block_number = block_number
         self.block_seq_nr = block_seq_nr
-        words = self.fs.read_12bit_words_block(block_number)
+        words = self.fs.read_words_block(block_number)
         for i in range(0, 128):
             self.sam[i] = words[i] & 0o77
             self.sam[i + 128] = words[i] >> 6
         self.next_sam_block_number = words[128]
+        return self
+
+    @classmethod
+    def new(cls, fs: "DMSFilesystem", block_number: int, block_seq_nr: int) -> "StorageAllocationMapBlock":
+        """
+        Create a new Storage Allocation Map (SAM) Block
+        """
+        self = cls(fs)
+        self.block_number = block_number
+        self.block_seq_nr = block_seq_nr
+        self.sam = [0] * 256
+        self.next_sam_block_number = 0
         return self
 
     def write(self) -> None:
@@ -446,7 +466,7 @@ class StorageAllocationMapBlock:
         for i in range(0, 128):
             words.append((self.sam[i] & 0o77) | ((self.sam[i + 128] & 0o77) << 6))
         words.append(self.next_sam_block_number)
-        self.fs.write_12bit_words_block(self.block_number, words)
+        self.fs.write_words_block(self.block_number, words)
 
     def set_block(self, block_number: int, file_number: int) -> None:
         """
@@ -459,6 +479,18 @@ class StorageAllocationMapBlock:
         Count the number of free blocks
         """
         return self.sam.count(EMPTY_FILE_NUMBER)
+
+    def __str__(self) -> str:
+        buf = io.StringIO()
+        buf.write("\n*SAM Block\n")
+        buf.write(f"Block number:          {self.block_number:>5}\n")
+        buf.write(f"Next SAM block:        {self.next_sam_block_number:>5}\n")
+        offset = self.block_seq_nr * 256
+        for i, b in enumerate(self.sam):
+            if i % 8 == 0:
+                buf.write("\n")
+            buf.write(f"{i+offset:>4}:{b:>2}  ")
+        return buf.getvalue()
 
 
 class StorageAllocationMap:
@@ -485,6 +517,19 @@ class StorageAllocationMap:
                         self.files_blocks[file_number] = []
                     self.files_blocks[file_number].append(block_number)
             self.sam_blocks.append(sam)
+        return self
+
+    @classmethod
+    def new(cls, fs: "DMSFilesystem", sam_blocks: t.List[int]) -> "StorageAllocationMap":
+        self = StorageAllocationMap(fs)
+        self.sam_blocks = []
+        self.files_blocks = {}
+        # Create SAM blocks
+        for i, block_number in enumerate(sam_blocks):
+            sam_block = StorageAllocationMapBlock.new(self.fs, block_number, i)
+            if i < len(sam_blocks) - 1:
+                sam_block.next_sam_block_number = sam_blocks[i + 1]
+            self.sam_blocks.append(sam_block)
         return self
 
     def write(self) -> None:
@@ -706,7 +751,7 @@ class DMSDirectoryEntry(AbstractDirectoryEntry):
         Get file block size in bytes
         """
         # The last word of the block is the link to the next block
-        return (BLOCK_SIZE_WORD - 1) * BYTES_PER_WORD
+        return (BLOCK_SIZE_WORDS - 1) * BYTES_PER_WORD
 
     @property
     def creation_date(self) -> t.Optional[date]:
@@ -781,8 +826,8 @@ class DirectorNameBlock:
     version_number: int = 0
     # First SAM block number
     first_sam_block_number: int = 0
-    # Link to next directory name
-    next_directory_name: int = 0
+    # Link to next directory name block number
+    next_directory_name_block: int = 0
     # Directory entries
     entries: t.Dict[int, "DMSDirectoryEntry"]  # File number => DMSDirectoryEntry
 
@@ -798,18 +843,30 @@ class DirectorNameBlock:
         Read a Directory Name Block from disk
         """
         self = cls(fs)
-        words = self.fs.read_12bit_words_block(block_number)
+        words = self.fs.read_words_block(block_number)
         self.block_number = block_number
         self.block_seq_nr = block_seq_nr
         self.first_scratch_block_number = words[0]
         self.version_number = words[1]
         self.first_sam_block_number = words[2]
-        self.next_directory_name = words[3 + DN_ENTRIES * DN_ENTRY_SIZE]
+        self.next_directory_name_block = words[3 + DN_ENTRIES * DN_ENTRY_SIZE]
         if sam is not None:
             for position in range(3, 3 + DN_ENTRIES * DN_ENTRY_SIZE, DN_ENTRY_SIZE):
                 dir_entry = DMSDirectoryEntry.read(self, sam, words, position)
                 if not dir_entry.is_empty:
                     self.entries[dir_entry.file_number] = dir_entry
+        return self
+
+    @classmethod
+    def new(
+        cls, fs: "DMSFilesystem", block_number: int, block_seq_nr: int, sam: t.Optional["StorageAllocationMap"] = None
+    ) -> "DirectorNameBlock":
+        """
+        Create a new Directory Name Block
+        """
+        self = cls(fs)
+        self.block_number = block_number
+        self.block_seq_nr = block_seq_nr
         return self
 
     def write(self) -> None:
@@ -827,9 +884,9 @@ class DirectorNameBlock:
                 words.extend(entry.to_words())
             else:
                 words.extend([0] * DN_ENTRY_SIZE)
-        words.append(self.next_directory_name)
-        assert len(words) == BLOCK_SIZE_WORD
-        self.fs.write_12bit_words_block(self.block_number, words)
+        words.append(self.next_directory_name_block)
+        assert len(words) == BLOCK_SIZE_WORDS
+        self.fs.write_words_block(self.block_number, words)
 
     @property
     def first_file_number(self) -> int:
@@ -863,7 +920,7 @@ class DirectorNameBlock:
         buf.write(f"First scratch block:   {self.first_scratch_block_number:>5}\n")
         buf.write(f"Version number:        {self.version_number:>5}\n")
         buf.write(f"First SAM block:       {self.first_sam_block_number:>5}\n")
-        buf.write(f"Next dir name:         {self.next_directory_name:>5}\n")
+        buf.write(f"Next dir name block:   {self.next_directory_name_block:>5}\n")
         if self.entries_list:
             buf.write("\nFilename       Num  Low   Entry Core  Blocks")
             buf.write("\n                    Core  Point Bank")
@@ -911,6 +968,13 @@ class DMSFilesystem(AbstractFilesystem):
     =======
 
     Block
+
+           +---------------+
+    0o005  |   Scratch     |
+    0o006  |   Scratch     |
+    0o007  |   Scratch     |
+           +---------------+
+           /               /
            +---------------+
     0o177  |   DN1 (USER)  |
            +---------------+
@@ -937,15 +1001,23 @@ class DMSFilesystem(AbstractFilesystem):
     fs_description = "PDP-8 4k Disk Monitor System"
     dev: BlockDevice12Bit
 
+    dectape: bool = False  # DECtape device
     version_string: str  # Version
     first_scratch_block_number: int  # First scratch block number
     first_sam_block_number: int  # First SAM block number
 
-    def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"]):
+    def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"], device_type: t.Union[bool, str] = ""):
         if isinstance(file_or_device, AbstractFile):
             self.dev = RXBlockDevice12Bit(file_or_device)
+            # Blocks are 129 12-bit words (258 bytes)
+            self.dev.block_size_words = BLOCK_SIZE_WORDS
+            self.dectape = device_type == DECTAPE
+            if not self.dectape:
+                # Skip the first word of disk
+                self.dev.block_offset_bytes = BYTES_PER_WORD
         elif isinstance(file_or_device, BlockDevice12Bit):
             self.dev = file_or_device
+            self.dectape = self.dev.block_offset_bytes == BYTES_PER_WORD
         else:
             raise OSError(errno.EIO, f"Invalid device type for {self.fs_description} filesystem")
 
@@ -954,14 +1026,17 @@ class DMSFilesystem(AbstractFilesystem):
         cls,
         file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
         strict: t.Union[bool, str] = True,
+        device_type: t.Union[bool, str] = "",
         **kwargs: t.Union[bool, str],
     ) -> "DMSFilesystem":
         """
         Mount the 4k Disk Monitor System filesystem from a file
         """
-        self = cls(file_or_dev)
+        self = cls(file_or_dev, device_type=device_type)
         # Read the first Directory Name block
         dn = DirectorNameBlock.read(self, DN_START, 0)
+        if dn.first_sam_block_number != SAM_START:
+            raise OSError(f"Invalid DMS filesystem: first SAM block number is not {SAM_START}")
         self.first_scratch_block_number = dn.first_scratch_block_number
         self.first_sam_block_number = dn.first_sam_block_number
         self.version_string = sixbit_word12_to_asc(dn.version_number)
@@ -972,30 +1047,23 @@ class DMSFilesystem(AbstractFilesystem):
                 raise OSError(errno.EIO, os.strerror(errno.EIO))
         return self
 
-    def read_12bit_words_block(self, block_number: int) -> t.List[int]:
+    def read_words_block(self, block_number: int) -> t.List[int]:
         """
         Read a block as 129 12bit words
 
         - Blocks are 129 12-bit words (258 bytes)
         - Skip the first word of disk
         """
-        position = block_number * BLOCK_SIZE_WORD * BYTES_PER_WORD + BYTES_PER_WORD
-        self.dev.f.seek(position)
-        data = self.dev.f.read(BLOCK_SIZE_WORD * BYTES_PER_WORD)
-        return [x & 0o7777 for x in struct.unpack(f"<{BLOCK_SIZE_WORD}H", data)]
+        return self.dev.read_words_block(block_number)
 
-    def write_12bit_words_block(self, block_number: int, words: t.List[int]) -> None:
+    def write_words_block(self, block_number: int, words: t.List[int]) -> None:
         """
         Write a block as 129 12bit words
 
         - Blocks are 129 12-bit words (258 bytes)
         - Skip the first word of disk
         """
-        assert len(words) == BLOCK_SIZE_WORD
-        data = struct.pack(f"<{BLOCK_SIZE_WORD}H", *words)
-        position = block_number * BLOCK_SIZE_WORD * BYTES_PER_WORD + BYTES_PER_WORD
-        self.dev.f.seek(position)
-        self.dev.f.write(data)
+        return self.dev.write_words_block(block_number, words)
 
     def filter_entries_list(
         self,
@@ -1079,17 +1147,17 @@ class DMSFilesystem(AbstractFilesystem):
             # Convert IMAGE => words
             words = from_bytes_to_12bit_words(content, file_mode=IMAGE)
         # Allocate space
-        number_of_blocks = int(math.ceil(len(words) * 1.0 / DATA_BLOCK_SIZE_WORD))
+        number_of_blocks = int(math.ceil(len(words) * 1.0 / DATA_BLOCK_SIZE_WORDS))
         entry = self.create_file(fullname, number_of_blocks, creation_date, file_type)
         # Write blocks
         if entry is not None:
             blocks = entry.get_blocks()
             for i, block in enumerate(blocks):
-                block_words = words[i * DATA_BLOCK_SIZE_WORD : (i + 1) * DATA_BLOCK_SIZE_WORD]
-                block_words.extend([0] * (BLOCK_SIZE_WORD - len(block_words)))
+                block_words = words[i * DATA_BLOCK_SIZE_WORDS : (i + 1) * DATA_BLOCK_SIZE_WORDS]
+                block_words.extend([0] * (BLOCK_SIZE_WORDS - len(block_words)))
                 # The last word of the block is the link to the next block
                 block_words[-1] = blocks[i + 1] if i + 1 < len(blocks) else 0
-                entry.dn.fs.write_12bit_words_block(block, block_words)
+                entry.dn.fs.write_words_block(block, block_words)
 
     def create_file(
         self,
@@ -1147,7 +1215,7 @@ class DMSFilesystem(AbstractFilesystem):
         block_seq_nr = 0
         while next_block_number != 0:
             dn = DirectorNameBlock.read(self, next_block_number, block_seq_nr, sam)
-            next_block_number = dn.next_directory_name
+            next_block_number = dn.next_directory_name_block
             block_seq_nr += 1
             yield dn
 
@@ -1182,7 +1250,12 @@ class DMSFilesystem(AbstractFilesystem):
         sys.stdout.write("\n")
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
-        if arg:
+        if options.get("bitmap"):
+            # Display the SAM
+            sam = StorageAllocationMap.read(self)
+            for sam_block in sam.sam_blocks:
+                print(sam_block)
+        elif arg:
             sam = StorageAllocationMap.read(self)
             sys.stdout.write("Filename       Num  Low   Entry Core\n")
             sys.stdout.write("                    Core  Point Bank\n")
@@ -1190,6 +1263,10 @@ class DMSFilesystem(AbstractFilesystem):
             for entry in self.filter_entries_list(arg, include_all=True, sam=sam):
                 sys.stdout.write(f"{entry}\n")
         else:
+            sam = StorageAllocationMap.read(self)
+            sam_blocks = [x.block_number for x in sam.sam_blocks]
+            sys.stdout.write(f"SAM blocks:               {sam_blocks}\n")
+            sys.stdout.write(f"Is DECtape:               {'YES' if self.dectape else 'NO'}\n")
             for dn in self.read_directory_name_blocks():
                 sys.stdout.write(f"{dn}\n")
 
@@ -1203,50 +1280,53 @@ class DMSFilesystem(AbstractFilesystem):
                 end = entry.get_length() - 1
             blocks = entry.get_blocks()
             for block_number in range(start, end + 1):
-                words = self.read_12bit_words_block(blocks[block_number])
-                print(f"\nBLOCK NUMBER   {block_number:08}")
+                words = self.read_words_block(blocks[block_number])
+                sys.stdout.write(f"\nBLOCK NUMBER   {block_number:08}\n")
                 oct_dump(words)
         else:
             if start is None:
                 start = 0
                 if end is None:  # full disk
-                    end = self.get_size() // BLOCK_SIZE_WORD // BYTES_PER_WORD - 1
+                    end = self.get_size() // BLOCK_SIZE_WORDS // BYTES_PER_WORD - 1
             elif end is None:  # one single block
                 end = start
             for block_number in range(start, end + 1):
-                words = self.read_12bit_words_block(block_number)
-                print(f"\nBLOCK NUMBER   {block_number:08}")
+                words = self.read_words_block(block_number)
+                sys.stdout.write(f"\nBLOCK NUMBER   {block_number:08}\n")
                 oct_dump(words)
 
     @classmethod
     def initialize(
-        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        device_type: t.Union[bool, str] = "",
+        **kwargs: t.Union[bool, str],
     ) -> "DMSFilesystem":
         """
         Create an empty PDP-8 4k Disk Monitor filesystem
         """
-        self = cls(file_or_dev)
+        self = cls(file_or_dev, device_type=device_type)
         version_string = "AF"
-        scratch_blocks = [251, 252, 253, 254, 255]
-        dn_blocks = [DN_START, DN_START + 2, DN_START + 3]
-        sam_blocks = [DN_START + 1]
+        if self.dectape:
+            dn_blocks = DECTAPE_DN_BLOCKS
+            sam_blocks = DECTAPE_SAM_BLOCKS
+            scratch_blocks = DECTAPE_SCRATCH_BLOCKS
+        else:
+            dn_blocks = DN_BLOCKS
+            sam_blocks = SAM_BLOCK
+            scratch_blocks = SCRATCH_BLOCKS
         # Initialize this instance
         self.first_scratch_block_number = scratch_blocks[0]
         self.first_sam_block_number = sam_blocks[0]
         self.version_string = version_string
-        # Create SAM
-        for i, block_number in enumerate(dn_blocks):
-            sam_block = StorageAllocationMapBlock.read(self, block_number, i)
-            if i < len(sam_blocks) - 1:
-                sam_block.next_sam_block_number = sam_blocks[i + 1]
-        # Allocate blocks
-        sam = StorageAllocationMap.read(self)
+        # Create SAM and allocate blocks
+        sam = StorageAllocationMap.new(self, sam_blocks)
         for block_number in scratch_blocks + dn_blocks + sam_blocks:
             sam.set_block(block_number, RESERVED_FILE_NUMBER)
         sam.write()
         # Create DNs
         for i, block_number in enumerate(dn_blocks):
-            dn = DirectorNameBlock.read(self, block_number, i)
+            dn = DirectorNameBlock.new(self, block_number, i)
             if i == 0:
                 dn.first_scratch_block_number = scratch_blocks[0]
                 dn.first_sam_block_number = sam_blocks[0]
@@ -1261,7 +1341,7 @@ class DMSFilesystem(AbstractFilesystem):
                 entry.entry_point = 0o7000
                 dn.entries[entry.file_number] = entry
             if i < len(dn_blocks) - 1:
-                dn.next_directory_name = dn_blocks[i + 1]
+                dn.next_directory_name_block = dn_blocks[i + 1]
             dn.write()
         sam.write()
         return self

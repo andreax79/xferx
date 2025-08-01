@@ -42,6 +42,8 @@ __all__ = [
     "COSRXBlockDevice12Bit",
 ]
 
+BYTES_PER_WORD = 2  # Each word is encoded in 2 bytes
+BLOCK_SIZE_WORDS = 256  # Size of a block in words (12-bit mode)
 COS_TRACKS = 77  # Number of tracks in a COS RX01 disk image
 COS_SECTORS_PER_TRACK = 26  # Number of sectors per track in COS RX01 disk image
 COS_SECTORS_PER_BLOCK = 3  # Number of sectors per block in COS RX01 disk image
@@ -54,12 +56,15 @@ class BlockDevice12Bit(BlockDevice):
     Block device for 12-bit mode
     """
 
+    block_size_words: int = BLOCK_SIZE_WORDS  # Size of a block in bytes
+    block_offset_bytes: int = 0  # Offset in bytes for the blocks
+
     def read_words_block(self, block_number: int) -> t.List[int]:
         """
-        Read a block as 256 12bit words
+        Read a block as `block_words` 12bit words
         """
         data = self.read_block(block_number)
-        return [x & 0o7777 for x in struct.unpack("<256H", data)]
+        return [x & 0o7777 for x in struct.unpack(f"<{self.block_size_words}H", data)]
 
     def write_words_block(
         self,
@@ -67,9 +72,9 @@ class BlockDevice12Bit(BlockDevice):
         words: t.List[int],
     ) -> None:
         """
-        Write 256 12bit words as a block
+        Write `block_words` 12bit words as a block
         """
-        data = struct.pack("<256H", *words)
+        data = struct.pack(f"<{self.block_size_words}H", *words)
         self.write_block(data, block_number)
 
     def read_block(
@@ -77,7 +82,12 @@ class BlockDevice12Bit(BlockDevice):
         block_number: int,
         number_of_blocks: int = 1,
     ) -> bytes:
-        return self.f.read_block(block_number, number_of_blocks)
+        data = bytearray()
+        for i in range(block_number, block_number + number_of_blocks):
+            position = i * self.block_size_words * BYTES_PER_WORD + self.block_offset_bytes
+            self.f.seek(position)
+            data += self.f.read(self.block_size_words * BYTES_PER_WORD)
+        return bytes(data)
 
     def write_block(
         self,
@@ -85,7 +95,11 @@ class BlockDevice12Bit(BlockDevice):
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
-        self.f.write_block(buffer, block_number, number_of_blocks)
+        for i in range(block_number, block_number + number_of_blocks):
+            position = i * self.block_size_words * BYTES_PER_WORD + self.block_offset_bytes
+            self.f.seek(position)
+            self.f.write(buffer[: self.block_size_words * BYTES_PER_WORD])
+            buffer = buffer[self.block_size_words * BYTES_PER_WORD :]
 
 
 def cos_sector_position(sector: int, sector_size: int) -> int:
@@ -155,7 +169,7 @@ class RXBlockDevice12Bit(BlockDevice12Bit):
 
     def read_words_block(self, block_number: int) -> t.List[int]:
         """
-        Read a block as 256 12bit words
+        Read a block as `block_size_words` 12bit words
         """
         if self.is_rx:
             # RX01/RX02 12-bit mode
@@ -166,9 +180,9 @@ class RXBlockDevice12Bit(BlockDevice12Bit):
                 result.extend(rx_extract_12bit_words(data, 0, self.sector_size))
             return result
         else:
-            # Non-RX mode, read as 256 12-bit words
+            # Non-RX mode, read as block_size_words 12-bit words
             data = self.read_block(block_number)
-            return [x & 0o7777 for x in struct.unpack("<256H", data)]
+            return [x & 0o7777 for x in struct.unpack(f"<{self.block_size_words}H", data)]
 
     def write_words_block(
         self,
@@ -176,7 +190,7 @@ class RXBlockDevice12Bit(BlockDevice12Bit):
         words: t.List[int],
     ) -> None:
         """
-        Write 256 12bit words as a block
+        Write `block_size_words` 12bit words as a block
         """
         if self.is_rx:
             # RX01/RX02 12-bit mode
@@ -190,8 +204,8 @@ class RXBlockDevice12Bit(BlockDevice12Bit):
                 self.f.seek(position)
                 self.f.write(sector_data)
         else:
-            # Non-RX mode, write as 256 12-bit words
-            data = struct.pack("<256H", *words)
+            # Non-RX mode, write as `block_size_words` 12-bit words
+            data = struct.pack(f"<{self.block_size_words}H", *words)
             self.write_block(data, block_number)
 
 
@@ -208,7 +222,7 @@ class COSRXBlockDevice12Bit(RXBlockDevice12Bit):
 
     def read_words_block(self, block_number: int) -> t.List[int]:
         """
-        Read a block as 256 12bit words
+        Read a block as `block_size_words` 12bit words
         """
         if self.is_rx:
             # COS RX01 byte mode
@@ -220,9 +234,9 @@ class COSRXBlockDevice12Bit(RXBlockDevice12Bit):
                 words.append(data[self.sector_size + 2 * i + 1] + ((data[i] & 0x0F) << 8))
             return words
         else:
-            # Non-RX mode, read as 256 12-bit words
+            # Non-RX mode, read as `block_size_words` 12-bit words
             data = self.read_block(block_number)
-            return [x & 0o7777 for x in struct.unpack("<256H", data)]
+            return [x & 0o7777 for x in struct.unpack(f"<{self.block_size_words}H", data)]
 
     def write_words_block(
         self,
@@ -230,7 +244,7 @@ class COSRXBlockDevice12Bit(RXBlockDevice12Bit):
         words: t.List[int],
     ) -> None:
         """
-        Write 256 12bit words as a block
+        Write `block_size_words` 12bit words as a block
         """
         if self.is_rx:
             # COS RX01 byte mode
@@ -260,6 +274,6 @@ class COSRXBlockDevice12Bit(RXBlockDevice12Bit):
                 self.f.seek(position)
                 self.f.write(sector_data)
         else:
-            # Non-RX mode, write as 256 12-bit words
-            data = struct.pack("<256H", *words)
+            # Non-RX mode, write as `block_size_words` 12-bit words
+            data = struct.pack(f"<{self.block_size_words}H", *words)
             self.write_block(data, block_number)

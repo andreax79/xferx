@@ -26,7 +26,7 @@ List files
 .PIP
 *OPT-L    << L (press, L, without enter)
 
-*IN-S:    << S: (S: + enter)
+*IN-S:    << S: (device name, S: + enter)
 
 FB=0047
 
@@ -50,6 +50,10 @@ DIAG.SYS (0) 0004
 STAT.ASCII   0003
 PUNR.ASCII   0004
 ```
+
+Devices:
+* S: System device
+* D0-D7: DECtape unit
 
 Show file
 ---------
@@ -125,6 +129,9 @@ System Formats
 
 | Block | Name        |
 | ----- | ----------- |
+| 0o005 | Scratch     |
+| 0o006 | Scratch     |
+| 0o007 | Scratch     |
 | 0o177 | DN1 (USER)  |
 | 0o200 | SAM1 (USER) |
 | 0o201 | DN2 (USER)  |

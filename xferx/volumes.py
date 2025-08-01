@@ -221,6 +221,7 @@ class Volumes(object):
         path: str,
         logical: str,
         fstype: t.Optional[str] = None,
+        device_type: t.Optional[str] = None,
         verbose: bool = False,
         cmd: str = "MOUNT",
     ) -> None:
@@ -233,7 +234,7 @@ class Volumes(object):
         volume_id, fullname = splitdrive(path)
         fs = self.get(volume_id, cmd=cmd)
         kwargs: t.Dict[str, t.Union[bool, str]] = {}
-        device_type = self.guess_device_type(fullname)
+        device_type = device_type or self.guess_device_type(fullname)
         if device_type:
             kwargs["device_type"] = device_type
         try:

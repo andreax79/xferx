@@ -113,13 +113,13 @@ class MockFilesytem(DMSFilesystem):
     def __init__(self, t):
         self.t = t
 
-    def read_12bit_words_block(self, block_number):
+    def read_words_block(self, block_number):
         if block_number in self.t:
             return self.t[block_number]
         else:
             raise ValueError(f"Invalid block number {block_number}")
 
-    def write_12bit_words_block(self, block_number, words) -> None:
+    def write_words_block(self, block_number, words) -> None:
         self.t[block_number] = words
 
 
@@ -396,3 +396,55 @@ def test_dms_write_file():
 
     shell.onecmd("dismount dms2:", batch=True)
     shell.onecmd(f"del {DSK}_2.mo", batch=True)
+
+
+def test_dms_dectape():
+    shell = Shell(verbose=True)
+    shell.onecmd(f"create /allocate:743 {DSK}.mo", batch=True)
+    with open(f"{DSK}.mo", "wb") as f:
+        f.truncate(380292)
+
+    shell.onecmd(f"mount t: /dms {DSK}", batch=True)
+    fs = shell.volumes.get('T')
+    assert isinstance(fs, DMSFilesystem)
+
+    # Init
+    shell.onecmd(f"init /dms /dev:dectape {DSK}.mo", batch=True)
+    shell.onecmd(f"mount ou: /dms /dev:dectape {DSK}.mo", batch=True)
+    shell.onecmd("ex ou:", batch=True)
+    shell.onecmd("dir ou:", batch=True)
+    shell.onecmd("copy t:*.ascii ou:", batch=True)
+    shell.onecmd("copy t:aaaa.user ou:aaaa.user:777;5555", batch=True)
+    shell.onecmd("copy t:bbbb.sys ou:", batch=True)
+
+    x1 = fs.read_bytes("50.ascii")
+    x1 = x1.rstrip(b"\0")
+    assert len(x1) == 2200
+    for i in range(0, 50):
+        assert f"{i:5d} ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890".encode("ascii") in x1
+
+    fs = shell.volumes.get('OU')
+    l = list(fs.filter_entries_list("*.ascii"))
+    assert len(l) == 7
+    l = list(fs.filter_entries_list("*.user"))
+    assert len(l) == 1
+
+    e1 = fs.get_file_entry("AAAA.USER")
+    assert e1 is not None
+    assert e1.filename == "AAAA"
+    assert e1.extension == "USER"
+    assert e1.low_core_addr == 0o777
+    assert e1.high_core_addr == 0
+    assert e1.entry_point == 0o5555
+
+    x1 = fs.read_bytes("aaaa.user")
+    assert b"abcdefghijklmnopqrstuvwxyz" in x1
+
+    shell.onecmd("del ou:*.user", batch=True)
+    l = list(fs.filter_entries_list("*.user"))
+    assert len(l) == 0
+
+    # Test init mounted volume
+    shell.onecmd("init ou:", batch=True)
+    with pytest.raises(Exception):
+        fs.read_bytes("50.ascii")
