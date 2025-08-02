@@ -547,6 +547,7 @@ class PascalFilesystem(AbstractAppleDiskFilesystem):
 
     fs_name = "pascal"
     fs_description = "Apple II Pascal"
+    fs_platforms = ["apple2"]
 
     volume_name: str = ""  # Volume name
 

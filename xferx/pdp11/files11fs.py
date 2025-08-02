@@ -505,6 +505,7 @@ class Files11Filesystem(AbstractRXBlockFilesystem):
 
     fs_name = "files11"
     fs_description = "PDP-11 Files-11"
+    fs_platforms = ["pdp11"]
 
     uic: UIC  # current User Identification Code
 

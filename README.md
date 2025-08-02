@@ -34,6 +34,22 @@ XFERX is an utility for transferring files between various file systems.
 | Data General DOS/RDOS MagTape | Yes               | No                | No                | Yes               | N/A               |
 | Data General DOS/RDOS Dump    | Yes               | No                | No                | No                | No                |
 
+Installation
+------------
+
+### Using pip
+
+```bash
+pip install xferx
+```
+
+### Binary releases
+
+You can download the Windows binaries from the releases page.
+
+* https://github.com/andreax79/xferx/releases
+
+
 Commands
 --------
 
@@ -52,6 +68,7 @@ The following commands are availables:
 * DIR             Lists file directories
 * DISMOUNT        Disassociates a logical disk assignment from a file
 * DUMP            Prints formatted data dumps of files or devices
+* ECHO            Write arguments to the terminal
 * EXAMINE         Examines disk structure
 * EXIT            Exit the shell
 * HELP            Displays commands help

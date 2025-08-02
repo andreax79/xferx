@@ -802,6 +802,7 @@ class SOLOFilesystem(AbstractRXBlockFilesystem):
 
     fs_name = "solo"
     fs_description = "PDP-11 SOLO"
+    fs_platforms = ["pdp11"]
 
     catalog_length: int
 

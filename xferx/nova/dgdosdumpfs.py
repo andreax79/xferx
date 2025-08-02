@@ -496,6 +496,7 @@ class DGDOSDumpFilesystem(AbstractFilesystem):
 
     fs_name = "dump"
     fs_description = "Data General DOS/RDOS DUMP"
+    fs_platforms = ["nova"]
 
     f: "AbstractFile"
     pwd: str = "/"  # Current working directory

@@ -261,6 +261,7 @@ class COS300Filesystem(OS8Filesystem):
 
     fs_name = "cos300"
     fs_description = "PDP-8 COS-300/COS-310"
+    fs_platforms = ["pdp-8"]
     directory_entry_class: t.Type[OS8DirectoryEntry] = COS300DirectoryEntry
 
     def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"]):

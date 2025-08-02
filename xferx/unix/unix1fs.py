@@ -216,6 +216,7 @@ class UNIX1Filesystem(UNIXFilesystem):
 
     fs_name = "unix1"
     fs_description = "UNIX version 1"
+    fs_platforms = ["pdp-11"]
     version: int = 1  # UNIX version
     inode_size = V1_INODE_SIZE
     dir_format = V1_DIR_FORMAT

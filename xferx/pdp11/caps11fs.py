@@ -401,7 +401,8 @@ class CAPS11Filesystem(AbstractFilesystem):
     """
 
     fs_name = "caps11"
-    fs_description = "PDP-11 CAPS-11"
+    fs_description = "PDP-11 CAPS-11 / PDP-8 CAPS-8"
+    fs_platforms = ["pdp11", "pdp8"]
     caps8 = False  # Is CAPS-8 ?
     dev: Tape
 

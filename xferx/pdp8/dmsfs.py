@@ -999,6 +999,7 @@ class DMSFilesystem(AbstractFilesystem):
 
     fs_name = "dms"
     fs_description = "PDP-8 4k Disk Monitor System"
+    fs_platforms = ["pdp-8"]
     dev: BlockDevice12Bit
 
     dectape: bool = False  # DECtape device

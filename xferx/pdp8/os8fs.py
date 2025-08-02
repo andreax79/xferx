@@ -866,6 +866,7 @@ class OS8Filesystem(AbstractFilesystem):
 
     fs_name = "os8"
     fs_description = "PDP-8 OS/8"
+    fs_platforms = ["pdp-8"]
     dev: BlockDevice12Bit
 
     current_partition: int  # Current partition

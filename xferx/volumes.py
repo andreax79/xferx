@@ -48,6 +48,7 @@ from .pdp11.solofs import SOLOFilesystem
 from .pdp15.adssfs import ADSSFilesystem
 from .pdp15.dos15fs import DOS15Filesystem
 from .unix.unix1fs import UNIX1Filesystem
+from .unix.unix4fs import UNIX4Filesystem
 from .unix.unix5fs import UNIX5Filesystem
 from .unix.unix6fs import UNIX6Filesystem
 from .unix.unix7fs import UNIX7Filesystem
@@ -70,6 +71,7 @@ FILESYSTEMS: t.Dict[str, t.Type[AbstractFilesystem]] = {
     "solo": SOLOFilesystem,
     "unix0": UNIX0Filesystem,
     "unix1": UNIX1Filesystem,
+    "unix4": UNIX4Filesystem,
     "unix5": UNIX5Filesystem,
     "unix6": UNIX6Filesystem,
     "unix7": UNIX7Filesystem,

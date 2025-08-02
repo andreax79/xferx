@@ -39,6 +39,14 @@ __all__ = [
 ]
 
 
+def format_size(size: float) -> str:
+    for unit in ("", "K", "M", "G", "T"):
+        if abs(size) < 1000 or unit == "T":
+            break
+        size = size / 1000
+    return f"{size:3.1f}{unit}" if unit else str(int(size))
+
+
 class NativeFile(AbstractFile):
 
     f: t.Union[io.BufferedReader, io.BufferedRandom]
@@ -142,6 +150,50 @@ class NativeDirectoryEntry(AbstractDirectoryEntry):
     def basename(self) -> str:
         return os.path.basename(self.native_fullname)
 
+    @property
+    def is_regular_file(self) -> bool:
+        """
+        Check if the entry is a regular file
+        """
+        return stat.S_ISREG(self.stat.st_mode)
+
+    @property
+    def is_directory(self) -> bool:
+        """
+        Check if the entry is a directory
+        """
+        return stat.S_ISDIR(self.stat.st_mode)
+
+    @property
+    def is_link(self) -> bool:
+        """
+        Check if the entry is a symbolic link
+        """
+        return stat.S_ISLNK(self.stat.st_mode)
+
+    @property
+    def entry_type(self) -> t.Optional[str]:
+        """
+        Entry type
+        """
+        mode = self.stat.st_mode
+        if stat.S_ISREG(mode):
+            return "FILE"
+        elif stat.S_ISDIR(mode):
+            return "DIRECTORY"
+        elif stat.S_ISLNK(mode):
+            return "LINK"
+        elif stat.S_ISFIFO(mode):
+            return "FIFO"
+        elif stat.S_ISSOCK(mode):
+            return "SOCKET"
+        elif stat.S_ISCHR(mode):
+            return "CHAR DEV"
+        elif stat.S_ISBLK(mode):
+            return "BLOCK DEV"
+        else:
+            return None
+
     def get_length(self) -> int:
         """
         Get the length in blocks
@@ -165,7 +217,10 @@ class NativeDirectoryEntry(AbstractDirectoryEntry):
         Delete the directory entry
         """
         try:
-            os.unlink(self.native_fullname)
+            if self.is_directory:
+                os.rmdir(self.native_fullname)
+            else:
+                os.unlink(self.native_fullname)
             return True
         except:
             return False
@@ -241,7 +296,10 @@ class NativeFilesystem(AbstractFilesystem):
         for filename in os.listdir(dir):
             yield NativeDirectoryEntry(os.path.join(dir, filename))
 
-    def get_file_entry(self, fullname: str) -> t.Optional[NativeDirectoryEntry]:
+    def get_file_entry(self, fullname: str) -> "NativeDirectoryEntry":
+        """
+        Get the file entry for a given path
+        """
         if not fullname.startswith("/") and not fullname.startswith("\\"):
             fullname = os.path.join(self.pwd, fullname)
         return NativeDirectoryEntry(fullname)
@@ -254,6 +312,9 @@ class NativeFilesystem(AbstractFilesystem):
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,
     ) -> None:
+        """
+        Write content to a file
+        """
         if not fullname.startswith("/") and not fullname.startswith("\\"):
             fullname = os.path.join(self.pwd, fullname)
         with open(fullname, "wb") as f:
@@ -266,19 +327,39 @@ class NativeFilesystem(AbstractFilesystem):
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,
-        creation_date: t.Optional[date] = None,
+        number_of_blocks: int,  # length in blocks
+        creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,
+        length_bytes: t.Optional[int] = None,  # optional length in bytes
     ) -> t.Optional[NativeDirectoryEntry]:
+        """
+        Create a new file with a given length
+        """
         if not fullname.startswith("/") and not fullname.startswith("\\"):
             fullname = os.path.join(self.pwd, fullname)
+        if length_bytes is None:
+            length_bytes = number_of_blocks * BLOCK_SIZE
         with open(fullname, "wb") as f:
-            f.truncate(number_of_blocks * BLOCK_SIZE)
+            f.truncate(length_bytes)
         if creation_date:
             # Set the creation and modification date of the file
             ts = datetime.combine(creation_date, datetime.min.time()).timestamp()
             os.utime(fullname, (ts, ts))
         return NativeDirectoryEntry(fullname)
+
+    def create_directory(
+        self,
+        fullname: str,
+        options: t.Dict[str, t.Union[bool, str]],
+    ) -> t.Optional["NativeDirectoryEntry"]:
+        """
+        Create a directory
+        """
+        if not fullname.startswith("/") and not fullname.startswith("\\"):
+            fullname = os.path.join(self.pwd, fullname)
+        fullname = os.path.normpath(fullname)
+        os.makedirs(os.path.join(self.base, fullname))  # May raise OSError in case of errors
+        return NativeDirectoryEntry(os.path.join(self.base, fullname))
 
     def chdir(self, fullname: str) -> bool:
         if not fullname.startswith("/") and not fullname.startswith("\\"):
@@ -293,6 +374,9 @@ class NativeFilesystem(AbstractFilesystem):
             return False
 
     def isdir(self, fullname: str) -> bool:
+        """
+        Check if the path is a directory
+        """
         if not fullname.startswith("/") and not fullname.startswith("\\"):
             fullname = os.path.join(self.pwd, fullname)
         return os.path.isdir(os.path.join(self.base, fullname))
@@ -302,33 +386,11 @@ class NativeFilesystem(AbstractFilesystem):
             # Lists only file names and file types
             for x in self.filter_entries_list(pattern):
                 sys.stdout.write(f"{x.basename}\n")
-            return
-        for x in self.filter_entries_list(pattern):
-            mode = x.stat.st_mode
-            if stat.S_ISREG(mode):
-                type = "%s" % x.length
-            elif stat.S_ISDIR(mode):
-                type = "DIRECTORY      "
-            elif stat.S_ISLNK(mode):
-                type = "LINK           "
-            elif stat.S_ISFIFO(mode):
-                type = "FIFO           "
-            elif stat.S_ISSOCK(mode):
-                type = "SOCKET         "
-            elif stat.S_ISCHR(mode):
-                type = "CHAR DEV       "
-            elif stat.S_ISBLK(mode):
-                type = "BLOCK DEV      "
-            else:
-                type = "?"
-            sys.stdout.write(
-                "%15s %19s %s\n"
-                % (
-                    type,
-                    x.creation_date and x.creation_date.strftime("%d-%b-%Y %H:%M ") or "",
-                    x.basename,
-                )
-            )
+        else:
+            for x in self.filter_entries_list(pattern):
+                et = f"{format_size(x.get_size()):>15s}" if x.is_regular_file else x.entry_type
+                dt = x.creation_date.strftime("%d-%b-%Y %H:%M ") if x.creation_date else ""
+                sys.stdout.write(f"{et:>15s} {dt:>19s} {x.basename}\n")
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
         pass

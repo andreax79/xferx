@@ -150,6 +150,7 @@ class UNIX4Filesystem(UNIXFilesystem):
 
     fs_name = "unix4"
     fs_description = "UNIX version 4"
+    fs_platforms = ["pdp-11"]
     version: int = 4  # UNIX version
     inode_size = V4_INODE_SIZE
     dir_format = V4_DIR_FORMAT

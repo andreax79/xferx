@@ -848,6 +848,7 @@ class DECSysFilesystem(AbstractFilesystem):
 
     fs_name = "decsys"
     fs_description = "PDP-7 DECSys"
+    fs_platforms = ["pdp-7"]
     dev: BlockDevice18Bit
 
     def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"]):

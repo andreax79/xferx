@@ -1363,6 +1363,7 @@ class TSS8Filesystem(AbstractFilesystem):
 
     fs_name = "tss8"
     fs_description = "PDP-8 TSS/8"
+    fs_platforms = ["pdp-8"]
     dev: BlockDevice12Bit
 
     users: int  # Number of users

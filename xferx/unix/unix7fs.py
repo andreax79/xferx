@@ -199,6 +199,7 @@ class UNIX7Filesystem(UNIXFilesystem):
 
     fs_name = "unix7"
     fs_description = "UNIX version 7"
+    fs_platforms = ["pdp-11", "interdata8", "vax"]
     version: int = 7  # UNIX version
     inode_size = V7_INODE_SIZE
     dir_format = V7_DIR_FORMAT

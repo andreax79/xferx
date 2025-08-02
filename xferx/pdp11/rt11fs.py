@@ -469,6 +469,7 @@ class RT11Filesystem(AbstractRXBlockFilesystem):
 
     fs_name = "rt11"
     fs_description = "PDP-11 RT-11"
+    fs_platforms = ["pdp11"]
 
     # First directory segment block
     dir_segment: int = DEFAULT_DIR_SEGMENT

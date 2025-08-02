@@ -477,6 +477,7 @@ class UNIX0Filesystem(UNIXFilesystem):
 
     fs_name = "unix0"
     fs_description = "UNIX version 0"
+    fs_platforms = ["pdp-7"]
     version: int = 0
     directory_class = UNIX0Directory
     storage_map_block: int = 0  # First block of the free-storage map

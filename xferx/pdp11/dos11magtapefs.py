@@ -314,6 +314,7 @@ class DOS11MagTapeFilesystem(AbstractFilesystem):
 
     fs_name = "magtape"
     fs_description = "PDP-11 DOS/BATCH Magtape"
+    fs_platforms = ["pdp11"]
     dev: Tape
 
     uic: UIC = DEFAULT_UIC  # current User Identification Code

@@ -2,9 +2,9 @@ import shlex
 
 import pytest
 
-from xferx.commons import PartialMatching, bytes_to_word, word_to_bytes
+from xferx.commons import bytes_to_word, word_to_bytes
 from xferx.pdp11.rad50 import asc2rad, rad2asc
-from xferx.shell import extract_options
+from xferx.shell.commons import PartialMatching, extract_options
 
 
 def test_bytes_to_word():

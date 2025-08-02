@@ -83,11 +83,15 @@ def test_prodos_init():
     shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
     shell.onecmd(f"init /prodos {DSK}.mo", batch=True)
     shell.onecmd(f"mount ou: /prodos {DSK}.mo", batch=True)
-    shell.onecmd("dir ou:", batch=True)
-    shell.onecmd("create/directory ou:aaa", batch=True)
-    shell.onecmd("create/directory ou:aaa/bbb", batch=True)
-    shell.onecmd("copy t:small/medium/*.txt ou:aaa/bbb", batch=True)
+    shell.onecmd("ou:", batch=True)
+    shell.onecmd("dir", batch=True)
+    shell.onecmd("create/directory aaa", batch=True)
+    shell.onecmd("create/directory aaa/bbb", batch=True)
+    shell.onecmd("copy t:small/medium/*.txt aaa/bbb", batch=True)
     shell.onecmd("copy t:small/1.txt ou:", batch=True)
+    shell.onecmd("cd /prodos/aaa/bbb", batch=True)
+    shell.onecmd("dir", batch=True)
+    shell.onecmd("cd /prodos", batch=True)
     fs = shell.volumes.get('OU')
 
     x1 = fs.read_bytes("aaa/bbb/50.txt")
@@ -101,8 +105,8 @@ def test_prodos_init():
     with pytest.raises(FileNotFoundError):
         x1 = fs.read_bytes("aaa/bbb/50.txt")
     shell.onecmd("ou:", batch=True)
-    shell.onecmd("cd aaa/bbb", batch=True)
-    shell.onecmd("dir", batch=True)
+    with pytest.raises(Exception):
+        shell.onecmd("cd aaa/bbb", batch=True)
 
     # Test init mounted volume
     shell.onecmd("init ou:", batch=True)

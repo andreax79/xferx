@@ -790,6 +790,7 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
 
     fs_name = "rsts"
     fs_description = "PDP-11 RSTS/E"
+    fs_platforms = ["pdp11"]
 
     ppn: PPN  # Current Project Programmer Number
 

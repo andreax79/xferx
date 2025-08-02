@@ -1362,6 +1362,7 @@ class DGDOSFilesystem(AbstractBlockFilesystem):
 
     fs_name = "rdos"
     fs_description = "Data General Nova DOS/RDOS Filesystem"
+    fs_platforms = ["nova"]
 
     double_addressing: bool = False  # Disk requires double addressing
     top_loader: bool = False  # Disk is a top loader

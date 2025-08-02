@@ -1,4 +1,4 @@
-# Copyright (C) 2414 Andrea Bonomi <andrea.bonomi@gmail.com>
+# Copyright (C) 2014 Andrea Bonomi <andrea.bonomi@gmail.com>
 
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to
@@ -18,17 +18,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-from .unix4fs import UNIX4Filesystem
+from .kmon import Shell
 
-__all__ = ["UNIX5Filesystem"]
-
-
-class UNIX5Filesystem(UNIX4Filesystem):
-    """
-    UNIX version 5 Filesystem
-    """
-
-    fs_name = "unix5"
-    fs_description = "UNIX version 5"
-    fs_platforms = ["pdp-11"]
-    version: int = 5  # UNIX version
+__all__ = ["Shell"]

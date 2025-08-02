@@ -1028,6 +1028,7 @@ class DOS11Filesystem(AbstractRXBlockFilesystem):
 
     fs_name = "dos11"
     fs_description = "PDP-11 DOS-11/XXDP+"
+    fs_platforms = ["pdp11"]
 
     uic: UIC  # current User Identification Code
     xxdp: bool = False  # MFD Variety #2 (XXDP+)

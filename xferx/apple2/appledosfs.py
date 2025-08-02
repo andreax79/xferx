@@ -913,6 +913,7 @@ class AppleDOSFilesystem(AbstractAppleDiskFilesystem):
 
     fs_name = "appledos"
     fs_description = "Apple II DOS 3.x"
+    fs_platforms = ["apple2"]
 
     catalog_address: TrackSector  # first catalog address
     number_of_tracks: int  # Number of tracks on disk

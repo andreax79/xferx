@@ -1782,6 +1782,7 @@ class ProDOSFilesystem(AbstractAppleDiskFilesystem):
 
     fs_name = "prodos"
     fs_description = "Apple II ProDOS"
+    fs_platforms = ["apple2", "apple3"]
 
     pwd: str  # Current working directory
     volume_name: str  # Volume name

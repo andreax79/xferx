@@ -1218,6 +1218,7 @@ class ADSSFilesystem(AbstractFilesystem):
 
     fs_name = "adss"
     fs_description = "PDP-15 Advanced Monitor Software System"
+    fs_platforms = ["pdp-9", "pdp-15"]
     is_system_tape: bool = False  # System tape
     dev: BlockDevice18Bit
 

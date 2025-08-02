@@ -27,7 +27,6 @@ __all__ = [
     "READ_FILE_FULL",
     "BlockDirection",
     "Direction",
-    "PartialMatching",
     "TrackSector",
     "bytes_to_word",
     "dump_struct",
@@ -147,33 +146,6 @@ except Exception:
 
     def getch() -> str:
         return msvcrt.getch()  # type: ignore
-
-
-class PartialMatching:
-
-    def __init__(self) -> None:
-        self.short: t.Dict[str, str] = {}  # short key => full key
-        self.full: t.Dict[str, str] = {}  # full key => short key
-
-    def add(self, key: str) -> None:
-        try:
-            prefix, tail = key.split("_", 1)
-        except:
-            prefix = key
-            tail = ""
-        full = prefix + tail
-        self.full[full] = prefix
-        self.short[prefix] = full
-
-    def get(self, key: str, default: t.Optional[str] = None) -> t.Optional[str]:
-        try:
-            return self.short[key]
-        except KeyError:
-            pass
-        matching_keys = [(k, v) for k, v in self.full.items() if k.startswith(key) and len(key) >= len(v)]
-        if not matching_keys:
-            return default
-        return matching_keys[0][0]
 
 
 class TrackSector(t.NamedTuple):

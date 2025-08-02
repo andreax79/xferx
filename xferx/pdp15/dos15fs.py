@@ -670,6 +670,7 @@ class DOS15Filesystem(AbstractFilesystem):
 
     fs_name = "dos15"
     fs_description = "PDP-15 DOS-15"
+    fs_platforms = ["pdp-9", "pdp-15"]
     uic: str = ""  # current User Identification Code (only for disk, not DECtape)
     dev: BlockDevice18Bit
 

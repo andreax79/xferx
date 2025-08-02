@@ -264,6 +264,7 @@ class DGDOSMagTapeFilesystem(AbstractFilesystem):
 
     fs_name = "dgdosmt"
     fs_description = "Data General DOS/RDOS Magtape"
+    fs_platforms = ["nova"]
     dev: Tape
 
     def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"]):
