@@ -469,8 +469,7 @@ class DECSysDirectoryEntry(AbstractDirectoryEntry):
             else:
                 file_type = IMAGE
         # Always read the file as IMAGE
-        f = self.open(IMAGE)
-        try:
+        with self.open(IMAGE) as f:
             data = f.read_block(0, READ_FILE_FULL)
             if file_type == IMAGE:
                 return data
@@ -478,8 +477,6 @@ class DECSysDirectoryEntry(AbstractDirectoryEntry):
                 # Convert IMAGE => words => ASCII
                 words = from_bytes_to_18bit_words(data, file_type=IMAGE)
                 return fiodec_to_str(words).encode('ascii')
-        finally:
-            f.close()
 
 
 class SystemDirectoryEntry(DECSysDirectoryEntry):
@@ -1064,11 +1061,8 @@ class DECSysFilesystem(AbstractFilesystem):
         number_of_blocks = int(math.ceil(len(content) / LINKED_FILE_WORDS_PER_BLOCK))
         entry = self.create_file(fullname, number_of_blocks, creation_date, file_type)
         if entry is not None:
-            f = entry.open(file_type)
-            try:
+            with entry.open(file_type) as f:
                 f.write_words_block(words, block_number=0, number_of_blocks=number_of_blocks)
-            finally:
-                f.close()
 
     def isdir(self, fullname: str) -> bool:
         return False

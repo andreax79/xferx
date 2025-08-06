@@ -227,16 +227,13 @@ class COS300DirectoryEntry(OS8DirectoryEntry):
         if file_mode is None:
             file_mode = ASCII if is_source_file else IMAGE
         # Always read the file as IMAGE
-        f = self.open(IMAGE)
-        try:
+        with self.open(IMAGE) as f:
             data = f.read_block(0, READ_FILE_FULL)
             if file_mode == ASCII and is_source_file:
                 words = from_bytes_to_12bit_words(data)
                 return cos_codes_to_ascii(words)
             else:
                 return data
-        finally:
-            f.close()
 
     def __str__(self) -> str:
         return f"{self.fullname:<10} {self.file_type:<6} {self.creation_date or '          '} {self.length:>6} {self.file_position:6d}"
@@ -320,16 +317,13 @@ class COS300Filesystem(OS8Filesystem):
         if file_mode is None:
             file_mode = ASCII if is_source_file else IMAGE
         # Always read the file as IMAGE
-        f = self.open_file(fullname, IMAGE)
-        try:
+        with self.open_file(fullname, IMAGE) as f:
             data = f.read_block(0, READ_FILE_FULL)
             if file_mode == ASCII and is_source_file:
                 words = from_bytes_to_12bit_words(data)
                 return cos_codes_to_ascii(words)
             else:
                 return data
-        finally:
-            f.close()
 
     def write_bytes(
         self,

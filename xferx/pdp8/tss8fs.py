@@ -248,7 +248,7 @@ def tss8_split_fullname(
     ppn: PPN,
     fullname: t.Optional[str],
     wildcard: bool = True,
-) -> t.Tuple[PPN, t.Optional[str]]:
+) -> t.Tuple[PPN, str]:
     if fullname:
         if "[" in fullname:
             try:
@@ -258,7 +258,7 @@ def tss8_split_fullname(
                 return ppn, fullname
         if fullname:
             fullname = tss8_canonical_filename(fullname, wildcard=wildcard)
-    return ppn, fullname
+    return ppn, (fullname or "")
 
 
 def tss8_prepare_filename_extension(filename: str) -> t.Tuple[str, str, int]:
@@ -1520,11 +1520,8 @@ class TSS8Filesystem(AbstractFilesystem):
         entry = self.create_file(fullname, number_of_blocks, creation_date, file_type)
         if entry is not None:
             content = content + (b"\0" * TSS8_BLOCK_SIZE_BYTES)
-            f = entry.open(file_mode)
-            try:
+            with entry.open(file_mode) as f:
                 f.write_block(content, block_number=0, number_of_blocks=entry.length)
-            finally:
-                f.close()
 
     def create_file(
         self,

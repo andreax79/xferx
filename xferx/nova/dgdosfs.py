@@ -1566,11 +1566,8 @@ class DGDOSFilesystem(AbstractBlockFilesystem):
         )
         # Write the content to the file
         if entry is not None:
-            f = entry.open(file_mode)
-            try:
+            with entry.open(file_mode) as f:
                 f.write(content)
-            finally:
-                f.close()
 
     def create_file(
         self,
@@ -1682,14 +1679,11 @@ class DGDOSFilesystem(AbstractBlockFilesystem):
             if end is None:
                 entry = self.get_file_entry(fullname)
                 end = entry.get_length() - 1
-            f: DGDOSFile = t.cast(DGDOSFile, self.open_file(fullname, file_mode=IMAGE))
-            try:
+            with t.cast(DGDOSFile, self.open_file(fullname, file_mode=IMAGE)) as f:
                 for block_number in range(start, end + 1):
                     data = f.read_16bit_words_block(block_number)
                     sys.stdout.write(f"\nBLOCK NUMBER   {block_number:08}\n")
                     words_dump(data)
-            finally:
-                f.close()
         else:
             if start is None:
                 start = 0

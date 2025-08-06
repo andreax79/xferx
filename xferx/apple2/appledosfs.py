@@ -1043,11 +1043,8 @@ class AppleDOSFilesystem(AbstractAppleDiskFilesystem):
         )
         if entry is not None:
             content = content + (b"\0" * SECTOR_SIZE)  # pad with zeros
-            f = entry.open(file_mode)
-            try:
+            with entry.open(file_mode) as f:
                 f.write_block(content, block_number=0, number_of_blocks=number_of_blocks)
-            finally:
-                f.close()
 
     def create_file(
         self,
@@ -1147,8 +1144,7 @@ class AppleDOSFilesystem(AbstractAppleDiskFilesystem):
             if end is None:
                 entry = self.get_file_entry(fullname)
                 end = entry.get_length() - 1
-            f = self.open_file(fullname, file_mode=IMAGE)
-            try:
+            with self.open_file(fullname, file_mode=IMAGE) as f:
                 for block_number in range(start, end + 1):
                     data = f.read_block(block_number)
                     sys.stdout.write(f"\nBLOCK NUMBER   {block_number:08}\n")
@@ -1156,8 +1152,6 @@ class AppleDOSFilesystem(AbstractAppleDiskFilesystem):
                         # Remove the high bit for text files
                         data = bytes([x & 0x7F for x in data])
                     hex_dump(data)
-            finally:
-                f.close()
         else:
             if start is None:
                 start = 0

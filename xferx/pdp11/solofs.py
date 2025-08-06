@@ -956,14 +956,8 @@ class SOLOFilesystem(AbstractRXBlockFilesystem):
         entry = self.create_file(
             fullname=fullname, number_of_blocks=number_of_blocks, file_type=file_type, protected=protected
         )
-        if isinstance(entry, SOLOSegmentDirectoryEntry):
-            f: t.Union[SOLOSegment, SOLOFile] = SOLOSegment(entry)
-        else:
-            f = SOLOFile(entry)
-        try:
+        with SOLOSegment(entry) if isinstance(entry, SOLOSegmentDirectoryEntry) else SOLOFile(entry) as f:
             f.write_block(content, 0, entry.length)
-        finally:
-            f.close()
 
     def create_file(
         self,

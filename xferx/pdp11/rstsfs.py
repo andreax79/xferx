@@ -25,7 +25,7 @@ import sys
 import typing as t
 from datetime import date, datetime, timedelta
 
-from ..abstract import AbstractBlockFilesystem, AbstractDirectoryEntry, AbstractFile
+from ..abstract import AbstractDirectoryEntry, AbstractFile
 from ..cache import BlockCache
 from ..commons import BLOCK_SIZE, READ_FILE_FULL, dump_struct, filename_match
 from ..device.abstract import AbstractDevice
@@ -43,11 +43,24 @@ __all__ = [
 # RSTS/E V8.0 Internals Manual
 # https://bitsavers.org/pdf/dec/pdp11/rsts_e/V08/AA-CL35A-TE_8.0intern_Sep84.pdf
 
-# 3-level directory hierarchy:
-# Master File Directory (MFD)
-# Group File Directories (GFDs)
-# User File Directories (UFDs)
 
+# 3-level directory hierarchy:
+# Master File Directory (MFD) - only one per disk pack
+# Group File Directories (GFDs) - up to 255 GFDs per disk pack
+# User File Directories (UFDs) - up to 255 UFDs per GFD
+
+# Logical block = 256 16-bit words  (512 bytes)
+# Logical Block Number (LBN) = 0..n (23 bit)
+# Cluster = a collection of sequetial logical blocks
+# Cluster factor = number of logical blocks in a cluster (power of 2)
+# Device Cluster = smallest allocation unit on the device
+# Device Cluster Size (DCS) = < 16, chosen to keep DCN a 16-bit value
+# Device Cluster Number (DCN) = the number of the Device Cluster, a 16 bit value
+# Blockette = 8 words
+# Each disk block contains 32 blockettes
+# xxx File Directory Cluster Map - Blockette 31
+
+WORDS_PER_BLOCK = 256  # Number of words per block
 BOOT_BLOCK = 0  # Boot block
 LABEL_BLOCK_OFFSET = 0  # Label block offset from MFD/GFD (RDS1.1 and later)
 GFD_POINTER_BLOCK_OFFSET = 1  # GFD pointer block offset from MFD (RDS1.1 and later)
@@ -56,7 +69,9 @@ GFD_NAME_ENTRY_BLOCK_OFFSET = 2  # GFD name entries pointer block (RDS1.1 and la
 DISK_PACK_LABEL_DCN = 1  # Disk pack label DCN
 BLOCKETTE_FORMAT = '<HHHHHHHH'  # 8 words blockette
 BLOCKETTE_LEN = struct.calcsize(BLOCKETTE_FORMAT)
-DISK_PACK_LABEL_FORMAT = BLOCKETTE_FORMAT
+BLOCKETTE_WORDS = 8  # Number of words in a blockette
+BLOCKETTE_MAX = WORDS_PER_BLOCK // BLOCKETTE_WORDS  # Maximum number of blockettes in a block
+FDCM_BLOCKETTE = BLOCKETTE_MAX - 1  # Blockette 31 is the File Directory Cluster Map
 MFD_ENTRY_FORMAT = '<HHHHBBHHH'
 MFD_ENTRY_LEN = struct.calcsize(MFD_ENTRY_FORMAT)
 UFD_ENTRY_FORMAT = '<HHHHBBHHH'
@@ -64,7 +79,6 @@ UFD_ENTRY_LEN = struct.calcsize(UFD_ENTRY_FORMAT)
 assert MFD_ENTRY_LEN == BLOCKETTE_LEN == UFD_ENTRY_LEN
 GFD_POINTER_BLOCK_FORMAT = '<255H'
 UFD_POINTER_BLOCK_FORMAT = '<255H'
-CLUSTER_MAP_POS = 0o760
 US_UFD = 1 << 6  # USTAT bit 6 - 1 for MFD Name Entry
 RDS1_FLAGS = 0o20000  # RDS1.1 or RDS1.2
 RDS0_PLVL = 0  # RDS 0 - V7.x and before
@@ -183,10 +197,17 @@ class RTFSBlockCache(BlockCache):
         super().__init__(fs.dev)
         self.fs = fs
 
-    def read_block(self, block_number: int = 0, dcn: t.Optional[int] = None) -> bytes:
-        if dcn is not None:
-            block_number = self.fs.dcn_to_lbn(dcn)
+    def read_block(self, block_number: int = 0) -> bytes:
         return super().read_block(block_number)
+
+    def read_words_block(self, block_number: int = 0) -> t.List[int]:
+        """
+        Read a 512 bytes block as 256 16bit words
+        """
+        data = self.read_block(block_number)
+        if not data:
+            raise OSError(errno.EIO, f"Failed to read block {block_number}")
+        return list(struct.unpack_from("<256H", data))
 
 
 class RSTSFile(AbstractFile):
@@ -215,13 +236,11 @@ class RSTSFile(AbstractFile):
         ):
             raise OSError(errno.EIO, os.strerror(errno.EIO))
         cache = self.ufd_name_entry.fs.new_cache()
-        cluster_dcns = self.ufd_name_entry.read_retrieval_entries(cache=cache)
+        # Get the blocks to be read
+        blocks = self.ufd_name_entry.get_blocks(cache=cache)[block_number : block_number + number_of_blocks]
         data = bytearray()
-        for i in range(block_number, block_number + number_of_blocks):
-            cluster = i // self.ufd_name_entry.account_entry.uclus
-            cluster_block = i % self.ufd_name_entry.account_entry.uclus
-            dcn = cluster_dcns[cluster] + cluster_block
-            data.extend(cache.read_block(dcn=dcn))
+        for dcn in blocks:
+            data.extend(cache.read_block(self.ufd_name_entry.fs.dcn_to_lbn(dcn)))
         return bytes(data)
 
     def write_block(
@@ -491,8 +510,8 @@ class UFDNameEntry(AbstractDirectoryEntry):
 
         # Read the UFD cluster map
         retrieval_entry_link = self.uar
-        buffer = cache.read_block(retrieval_entry_link.block + self.ufd_uar)
-        ufd_cluster_map = self.fs.read_ufd_cluster_map(buffer)
+        words = cache.read_words_block(retrieval_entry_link.block + self.ufd_uar)
+        ufd_cluster_map = self.fs.read_ufd_cluster_map(words)
 
         # Read the retrieval entries
         cluster_dcns: t.List[int] = []
@@ -502,6 +521,22 @@ class UFDNameEntry(AbstractDirectoryEntry):
             retrieval_entry_link = Link(self.fs, blockette[0])
             cluster_dcns += blockette[1:]
         return cluster_dcns
+
+    def get_blocks(self, cache: t.Optional[RTFSBlockCache] = None) -> t.List[int]:
+        """
+        Get blocks (DCNs)
+        """
+        if cache is None:
+            cache = self.fs.new_cache()
+        cluster_dcns = self.read_retrieval_entries(cache=cache)
+        number_of_blocks = self.account_entry.usiz
+        result: t.List[int] = []
+        for i in range(0, number_of_blocks):
+            cluster = i // self.account_entry.uclus
+            cluster_block = i % self.account_entry.uclus
+            dcn = cluster_dcns[cluster] + cluster_block
+            result.append(dcn)
+        return result
 
     @property
     def fullname(self) -> str:
@@ -654,33 +689,35 @@ class GFD:
         if cache is None:
             cache = mfd.fs.new_cache()
         self = GFD(mfd, group)
-        buffer = cache.read_block(dcn=self.dcn + LABEL_BLOCK_OFFSET)
-        self.read_mfd_cluster_map(buffer)
-        buffer = cache.read_block(dcn=self.dcn + UFD_POINTER_BLOCK_OFFSET)
+        words = cache.read_words_block(self.fs.dcn_to_lbn(self.dcn + LABEL_BLOCK_OFFSET))
+        self.read_mfd_cluster_map(words)
+        buffer = cache.read_block(self.fs.dcn_to_lbn(self.dcn + UFD_POINTER_BLOCK_OFFSET))
         self.ufd_pointer_map = list(struct.unpack_from(UFD_POINTER_BLOCK_FORMAT, buffer, 0))
-        buffer = cache.read_block(dcn=self.dcn + GFD_NAME_ENTRY_BLOCK_OFFSET)
+        buffer = cache.read_block(self.fs.dcn_to_lbn(self.dcn + GFD_NAME_ENTRY_BLOCK_OFFSET))
         self.name_entry_pointer_map = [Link(mfd.fs, x) for x in struct.unpack_from(UFD_POINTER_BLOCK_FORMAT, buffer, 0)]
         return self
 
-    def read_mfd_cluster_map(self, buffer: bytes) -> None:
+    def read_mfd_cluster_map(self, words: t.List[int]) -> None:
         """
             Read MFD cluster map.
             The MFD cluster map contains pointer to each cluster in the MFD.
 
+        Word
             +-------------------------------------+
          0  |          MFD cluster size           |
             +-------------------------------------+
-         2  |       DCN of MFD cluster 0          |
+         1  |       DCN of MFD cluster 0          |
             +-------------------------------------+
             |                 ...                 |
             +-------------------------------------+
-        16  |       DCN of MFD cluster 6          |
+         7  |       DCN of MFD cluster 6          |
             +-------------------------------------+
 
             http://elvira.stacken.kth.se/rstsdoc/rsts-doc-v80/extra/mayfieldRSTS8internals.pdf Pag 22
+            https://bitsavers.org/pdf/dec/pdp11/rsts_e/V08/AA-CL35A-TE_8.0intern_Sep84.pdf Pag 111
 
         """
-        blockette = struct.unpack_from(BLOCKETTE_FORMAT, buffer, CLUSTER_MAP_POS)
+        blockette = words[FDCM_BLOCKETTE * BLOCKETTE_WORDS : (FDCM_BLOCKETTE + 1) * BLOCKETTE_WORDS]
         self.gfd_cluster_size = blockette[0]
         self.gfd_cluster_map = list(blockette[1:])
 
@@ -704,7 +741,7 @@ class GFD:
         for user, ufd_pointer in enumerate(self.ufd_pointer_map):
             if ufd_pointer != 0 and (ppn is None or ppn.user == ANY_USER or ppn.user == user):
                 ufd_ppn = PPN(group=self.group, user=user)
-                buffer = cache.read_block(dcn=ufd_pointer)
+                buffer = cache.read_block(self.fs.dcn_to_lbn(ufd_pointer))
                 ufd_label = UFDLabelEntry.read(self.fs, buffer)
                 yield from self.fs.read_ufd_name_entries(ufd_label.ulnk, ufd_pointer, ppn=ufd_ppn, cache=cache)
 
@@ -718,22 +755,22 @@ class MFD:
 
     fs: "RSTSFilesystem"
     gfd_pointer_map: t.List[int]  # Pointers to Group File Directories (RDS1.1)
-    mdcn: int  # DCN of MFD
+    dcn: int  # Device Cluster Number of the MFD
 
     def __init__(self, fs: "RSTSFilesystem"):
         self.fs = fs
 
     @classmethod
-    def read(cls, fs: "RSTSFilesystem", mdcn: int) -> "MFD":
+    def read(cls, fs: "RSTSFilesystem", dcn: int) -> "MFD":
         self = MFD(fs)
-        self.mdcn = mdcn
+        self.dcn = dcn
 
         # Read MFD label block
-        buffer = self.fs.read_block(dcn=self.mdcn + LABEL_BLOCK_OFFSET)
-        self.fs.read_mfd_cluster_map(buffer)  # Read cluster map from MFD label block
+        words = self.fs.read_words_block(self.fs.dcn_to_lbn(self.dcn + LABEL_BLOCK_OFFSET))
+        self.fs.read_mfd_cluster_map(words)  # Read cluster map from MFD label block
 
         # Read the GFD pointer block
-        buffer = self.fs.read_block(dcn=self.mdcn + GFD_POINTER_BLOCK_OFFSET)
+        buffer = self.fs.read_block(self.fs.dcn_to_lbn(self.dcn + GFD_POINTER_BLOCK_OFFSET))
         self.gfd_pointer_map = list(struct.unpack_from(GFD_POINTER_BLOCK_FORMAT, buffer, 0))
         return self
 
@@ -746,6 +783,181 @@ class MFD:
         for group, dcn in enumerate(self.gfd_pointer_map):
             if dcn != 0 and (ppn is None or ppn.group == ANY_GROUP or ppn.group == group):
                 yield GFD.read(self, group, cache)
+
+
+class StorageAllocationTable:
+    """
+    Storage Allocation Table
+
+    Pag 136
+    https://bitsavers.org/pdf/dec/pdp11/rsts_e/V08/AA-CL35A-TE_8.0intern_Sep84.pdf
+    """
+
+    fs: "RSTSFilesystem"
+    blocks: t.List[int]  # Bitmap DNCs
+    num_of_pack_clusters: int  # Number of pack clusters
+    num_of_words: int  # Number of words in each bitmap block
+    bitmaps: t.List[int]
+
+    def __init__(self, fs: "RSTSFilesystem"):
+        self.fs = fs
+
+    @classmethod
+    def read(cls, fs: "RSTSFilesystem") -> "StorageAllocationTable":
+        """
+        Read the bitmap blocks
+        """
+        self = StorageAllocationTable(fs)
+        satt_sys = fs.get_file_entry(SAT_FILENAME)
+
+        # Check SAT size
+        self.num_of_pack_clusters = (fs.device_size - fs.device_cluster_size) // fs.pack_cluster_size
+        satt_size = ((self.num_of_pack_clusters + (BLOCK_SIZE * 8) - 1) & -(BLOCK_SIZE * 8)) // BLOCK_SIZE // 8
+        if satt_sys.get_length() != satt_size:
+            raise OSError(errno.EIO, f"Invalid {SAT_FILENAME} size, expected size is {satt_size} blocks")
+
+        cache = fs.new_cache()
+        self.blocks = satt_sys.get_blocks(cache=cache)
+        self.bitmaps = []
+        for dcn in self.blocks:
+            words = cache.read_words_block(self.fs.dcn_to_lbn(dcn))
+            if not words:
+                raise OSError(errno.EIO, f"Failed to read block {dcn}")
+            self.bitmaps.extend(words)
+        return self
+
+    # @classmethod
+    # def new(cls, fs: "DOS11Filesystem", first_bitmap_block: int) -> "DOS11Bitmap":
+    #     """
+    #     Create a new bitmap
+    #     """
+    #     self = DOS11Bitmap(fs)
+    #     number_of_blocks = self.fs.get_size() // BLOCK_SIZE
+    #     total_num_of_words = math.ceil(number_of_blocks / 16)
+    #     if total_num_of_words <= MAX_WORDS_PER_BITMAP:
+    #         self.num_of_words = total_num_of_words  # Number of words in each bitmap block
+    #         bitmap_blocks = 1  # Only one bitmap block needed
+    #     else:
+    #         self.num_of_words = MAX_WORDS_PER_BITMAP  # Maximum number of words in a bitmap block
+    #         bitmap_blocks = math.ceil(total_num_of_words / self.num_of_words)
+    #     self.blocks = list(range(first_bitmap_block, first_bitmap_block + bitmap_blocks))
+    #     self.bitmaps = [0] * self.num_of_words * bitmap_blocks
+    #     # Mark the bitmap blocks as used
+    #     self.set_used(0)  # Block 0 is always used
+    #     self.set_used(self.fs.mfd_block1)  # MFD block 1
+    #     self.set_used(self.fs.mfd_block2)  # MFD block 2
+    #     for block in self.blocks:
+    #         self.set_used(block)
+    #     for block in range(number_of_blocks, self.total_bits):
+    #         self.set_used(block)
+    #     self.write()
+    #     return self
+    #
+    # def write(self) -> None:
+    #     """
+    #     Write the bitmap blocks
+    #     """
+    #     for bitmap_num in range(0, len(self.blocks)):
+    #         next_block = self.blocks[bitmap_num + 1] if bitmap_num < len(self.blocks) - 1 else 0
+    #         words = [
+    #             next_block,  #        1 word  Next bitmap block number
+    #             bitmap_num + 1,  #    1 word  Map block number
+    #             self.num_of_words,  # 1 word  Number of words of map
+    #             self.blocks[0],  #    1 word  First bitmap block number
+    #         ]
+    #         words += self.bitmaps[bitmap_num * self.num_of_words : (bitmap_num + 1) * self.num_of_words]
+    #         words = pad_words(words, WORDS_PER_BLOCK)  # Fill the rest with zeros
+    #         self.fs.write_words_block(self.blocks[bitmap_num], words)
+    #
+    @property
+    def total_bits(self) -> int:
+        """
+        Return the bitmap length in bit
+        """
+        return self.num_of_pack_clusters
+
+    def is_free(self, bit_index: int) -> bool:
+        """
+        Check if a block is free
+        """
+        int_index = bit_index // 16
+        bit_position = bit_index % 16
+        bit_value = self.bitmaps[int_index]
+        return (bit_value & (1 << bit_position)) == 0
+
+    def set_used(self, bit_index: int) -> None:
+        """
+        Mark a block as used
+        """
+        int_index = bit_index // 16
+        bit_position = bit_index % 16
+        self.bitmaps[int_index] |= 1 << bit_position
+
+    def set_free(self, bit_index: int) -> None:
+        """
+        Mark a block as free
+        """
+        int_index = bit_index // 16
+        bit_position = bit_index % 16
+        self.bitmaps[int_index] &= ~(1 << bit_position)
+
+    def find_contiguous_blocks(self, size: int) -> int:
+        """
+        Find contiguous blocks, return the first block number
+        """
+        current_run = 0
+        start_index = -1
+        for i in range(self.total_bits - 1, -1, -1):
+            if self.is_free(i):
+                if current_run == 0:
+                    start_index = i
+                current_run += 1
+                if current_run == size:
+                    return start_index - size + 1
+            else:
+                current_run = 0
+        raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+    def allocate(self, size: int, contiguous: bool = False) -> t.List[int]:
+        """
+        Allocate contiguous or sparse blocks
+        """
+        blocks = []
+        if contiguous and size != 1:
+            start_block = self.find_contiguous_blocks(size)
+            for block in range(start_block, start_block + size):
+                self.set_used(block)
+                blocks.append(block)
+        else:
+            for block in range(0, self.total_bits):
+                if self.is_free(block):
+                    self.set_used(block)
+                    blocks.append(block)
+                if len(blocks) == size:
+                    break
+            if len(blocks) < size:
+                raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+        return blocks
+
+    def used(self) -> int:
+        """
+        Count the number of used blocks
+        """
+        used = 0
+        for block in self.bitmaps:
+            used += block.bit_count()
+        return used
+
+    def free(self) -> int:
+        """
+        Count the number of free blocks
+        """
+        return len(self.bitmaps) * 16 - self.used()
+
+    def __str__(self) -> str:
+        free = self.free()
+        used = self.used()
+        return f"Free blocks: {free:<6} Used blocks: {used:<6}"
 
 
 class RSTSFilesystem(AbstractRXBlockFilesystem):
@@ -795,11 +1007,11 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
     ppn: PPN  # Current Project Programmer Number
 
     device_size: int  # Device size in blocks
-    dcs: int  # Device Cluster Size
-    plvl: int  # Revision level (RDS1.1)
-    ppcs: int  # Pack cluster size
-    pstat: int  # Pack status
-    pckid: str  # Pack ID
+    device_cluster_size: int  # Device Cluster Size
+    revision: int  # Revision level (RDS1.1)
+    pack_cluster_size: int  # Pack cluster size
+    pack_status: int  # Pack status
+    pack_id: str  # Pack ID
     structure_level: str  # RDS level
     mfd_cluster_size: int  # MFD cluster size
     mfd_cluster_map: t.List[int]  # MFD cluster map (DCN of MFD clusters 0 - 6)
@@ -827,10 +1039,11 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
     def new_cache(self) -> "RTFSBlockCache":
         return RTFSBlockCache(self)
 
-    def compute_dcs(self) -> int:
+    def compute_device_cluster_size(self) -> int:
         """
-        Compute DCS (Device Cluster Size)
-        It is calculated such that all clusters on the disk
+        Compute Device Cluster Size (DCS)
+        The Device Cluster is the smallest allocation unit on the device.
+        The DCS is calculated such that all clusters on the disk
         can be specified by a 16-bit number
         """
         d = (self.device_size - 1) >> 16
@@ -845,79 +1058,78 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
         Convert DCN (Device Cluster Number)
         to LBN (Logical Block Number)
         """
-        return dcn * self.dcs
+        return dcn * self.device_cluster_size
 
     def read_disk_pack_label(self) -> None:
         """Read disk pack label"""
         self.device_size = self.get_size() // BLOCK_SIZE
-        self.dcs = self.compute_dcs()
+        self.device_cluster_size = self.compute_device_cluster_size()
 
-        buffer = self.read_block(dcn=DISK_PACK_LABEL_DCN)
-        (
-            self.ulnk,  #   2 bytes  Link to first name entry in MFD (RDS0)
-            _,  #           2 bytes  Unused (-1)
-            mdcn,  #        2 bytes  DCN of MFD (RDS1.1)
-            self.plvl,  #   2 bytes  Revision level (RDS1.1)
-            self.ppcs,  #   2 bytes  Pack cluster size
-            self.pstat,  #  2 bytes  Pack status
-            pckid0,  #      2 bytes  Pack ID first word
-            pckid1,  #      2 bytes  Pack ID second word
-        ) = struct.unpack_from(DISK_PACK_LABEL_FORMAT, buffer, 0)
-        self.pckid = rad50_word_to_asc(pckid0) + rad50_word_to_asc(pckid1)
-        self.mfd_first_name_entry = Link(self, self.ulnk)
+        # Read the Disk Pack Label block
+        words = self.read_words_block(self.dcn_to_lbn(DISK_PACK_LABEL_DCN))
+        self.mfd_first_name_entry = Link(self, words[0])  # Link to first name entry in MFD (RDS0)
+        assert words[1] == 65535  # contains 65535 (-1) to show that this entry is in use
+        mfd_dcn = words[2]  # Device Cluster Number of MFD (RDS1.1)
+        self.revision = words[3]  # Revision level (RDS1.1)
+        self.pack_cluster_size = words[4]  # Pack cluster size
+        self.pack_status = words[5]  # Pack status
+        self.pack_id = rad50_word_to_asc(words[6]) + rad50_word_to_asc(words[7])  # Pack ID first and second word
 
-        if self.pstat & RDS1_FLAGS:  # RDS1.x
-            if self.plvl == RDS11_PLVL:
+        if self.pack_status & RDS1_FLAGS:  # RDS1.x
+            if self.revision == RDS11_PLVL:
                 self.structure_level = "RDS1.1"
             else:
                 self.structure_level = "RDS1.2"
-            self.mfd = MFD.read(self, mdcn)
+            self.mfd = MFD.read(self, mfd_dcn)
         else:  # RDS0
-            self.plvl = RDS0_PLVL  # Set RDS level to 0
+            self.revision = RDS0_PLVL  # Set RDS level to 0
             self.structure_level = "RDS0"
-            self.read_mfd_cluster_map(buffer)
+            self.read_mfd_cluster_map(words)
 
-    def read_mfd_cluster_map(self, buffer: bytes) -> None:
+    def read_mfd_cluster_map(self, words: t.List[int]) -> None:
         """
             Read MFD cluster map.
             The MFD cluster map contains pointer to each cluster in the MFD.
 
+        Word
             +-------------------------------------+
          0  |          MFD cluster size           |
             +-------------------------------------+
-         2  |       DCN of MFD cluster 0          |
+         1  |       DCN of MFD cluster 0          |
             +-------------------------------------+
             |                 ...                 |
             +-------------------------------------+
-        16  |       DCN of MFD cluster 6          |
+         7  |       DCN of MFD cluster 6          |
             +-------------------------------------+
 
             http://elvira.stacken.kth.se/rstsdoc/rsts-doc-v80/extra/mayfieldRSTS8internals.pdf Pag 22
+            https://bitsavers.org/pdf/dec/pdp11/rsts_e/V08/AA-CL35A-TE_8.0intern_Sep84.pdf Pag 111
 
         """
-        blockette = struct.unpack_from(BLOCKETTE_FORMAT, buffer, CLUSTER_MAP_POS)
+        blockette = words[FDCM_BLOCKETTE * BLOCKETTE_WORDS : (FDCM_BLOCKETTE + 1) * BLOCKETTE_WORDS]
         self.mfd_cluster_size = blockette[0]
         self.mfd_cluster_map = list(blockette[1:])
 
-    def read_ufd_cluster_map(self, buffer: bytes) -> t.List[int]:
+    def read_ufd_cluster_map(self, words: t.List[int]) -> t.List[int]:
         """
             Read UFD cluster map.
             The UFD cluster map contains pointer to each cluster in the UFD.
 
+        Word
             +-------------------------------------+
          0  |          UFD cluster size           |
             +-------------------------------------+
-         2  |       DCN of UFD cluster 0          |
+         1  |       DCN of UFD cluster 0          |
             +-------------------------------------+
             |                 ...                 |
             +-------------------------------------+
-        16  |       DCN of UFD cluster 6          |
+         7  |       DCN of UFD cluster 6          |
             +-------------------------------------+
 
             http://elvira.stacken.kth.se/rstsdoc/rsts-doc-v80/extra/mayfieldRSTS8internals.pdf Pag 38
 
         """
-        blockette = struct.unpack_from(BLOCKETTE_FORMAT, buffer, CLUSTER_MAP_POS)
+        blockette = words[FDCM_BLOCKETTE * BLOCKETTE_WORDS : (FDCM_BLOCKETTE + 1) * BLOCKETTE_WORDS]
         return list(blockette[1:])
 
     def read_mfd_name_entries(self, cache: t.Optional[RTFSBlockCache] = None) -> t.Iterator["MFDNameEntry"]:
@@ -952,8 +1164,8 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
         """
         if cache is None:
             cache = self.new_cache()
-        buffer = cache.read_block(link.block + ufd_uar)
-        ufd_cluster_map = self.read_ufd_cluster_map(buffer)
+        words = cache.read_words_block(link.block + ufd_uar)
+        ufd_cluster_map = self.read_ufd_cluster_map(words)
         while not link.is_null:
             buffer = cache.read_block(link.to_lbn(ufd_cluster_map))
             ufd_entry = UFDNameEntry.read(self, ppn, ufd_uar, buffer, UFD_ENTRY_LEN * link.entry)
@@ -967,7 +1179,7 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
         Read UFD label entry
         http://elvira.stacken.kth.se/rstsdoc/rsts-doc-v80/extra/mayfieldRSTS8internals.pdf Pag 33
         """
-        buffer = self.read_block(dcn=dcn)
+        buffer = self.read_block(self.dcn_to_lbn(dcn))
         return UFDLabelEntry.read(self, buffer)
 
     def read_block(
@@ -985,8 +1197,36 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
         buffer: bytes,
         block_number: int,
         number_of_blocks: int = 1,
+        dcn: t.Optional[int] = None,
     ) -> None:
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
+
+    def read_words_block(
+        self,
+        block_number: int = 0,
+    ) -> t.List[int]:
+        """
+        Read a 512 bytes block as 256 16bit words
+        """
+        data = self.read_block(block_number)
+        if not data:
+            raise OSError(errno.EIO, f"Failed to read block {block_number}")
+        return list(struct.unpack_from("<256H", data))
+
+    def write_words_block(
+        self,
+        block_number: int,
+        words: t.List[int],
+    ) -> None:
+        """
+        Write 256 16bit words as a 512 bytes block
+        """
+        data = struct.pack("<256H", *words)
+        self.write_block(data, block_number)
+
+    def read_bitmap(self) -> StorageAllocationTable:
+        bitmap = StorageAllocationTable.read(self)
+        return bitmap
 
     def read_dir_entries(self, ppn: PPN, cache: t.Optional[RTFSBlockCache] = None) -> t.Iterator["UFDNameEntry"]:
         if cache is None:
@@ -1094,7 +1334,15 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
         ppn = None
-        if arg and "[" in arg:
+        if options.get("bitmap"):
+            # Display the bitmap
+            bitmap = self.read_bitmap()
+            for i in range(0, bitmap.total_bits):
+                sys.stdout.write(f"{i:>4d} {'[ ]' if bitmap.is_free(i) else '[X]'}  ")
+                if i % 16 == 15:
+                    sys.stdout.write("\n")
+            sys.stdout.write(f"\nUsed blocks: {bitmap.used()}\n")
+        elif arg and "[" in arg:
             try:
                 ppn = PPN.from_str(arg)
                 arg = arg.split("]", 1)[1]
@@ -1121,19 +1369,23 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
                             sys.stdout.write(f"{ufd_entry}\n")
 
         else:
-            sys.stdout.write("Disk Pack Label\n\n")
+            sys.stdout.write("Disk Pack Label\n")
+            sys.stdout.write("---------------\n\n")
             sys.stdout.write(dump_struct(self.__dict__))
-            sys.stdout.write("\n\nMFD Cluster Map\n\n")
+            sys.stdout.write("\n\nMFD Cluster Map\n")
+            sys.stdout.write("---------------\n\n")
             for i, dcn in enumerate(self.mfd_cluster_map):
                 if dcn:
                     sys.stdout.write(f"Cluster {i} -> DCN {dcn}\n")
             if self.mfd is not None:
-                sys.stdout.write("\nGFD Pointer Map\n\n")
+                sys.stdout.write("\nGFD Pointer Map\n")
+                sys.stdout.write("---------------\n\n")
                 for i, dcn in enumerate(self.mfd.gfd_pointer_map):
                     if dcn:
                         sys.stdout.write(f"Cluster {i} -> DCN {dcn}\n")
             # Listing of all PPN
-            sys.stdout.write("\nProject Programmer Numbers\n\n")
+            sys.stdout.write("\nProject Programmer Numbers\n")
+            sys.stdout.write("--------------------------\n\n")
             for mfd_entry in self.read_mfd_name_entries():
                 sys.stdout.write(f"{mfd_entry}\n")
 

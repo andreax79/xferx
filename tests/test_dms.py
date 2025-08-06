@@ -400,22 +400,22 @@ def test_dms_write_file():
 
 def test_dms_dectape():
     shell = Shell(verbose=True)
-    shell.onecmd(f"create /allocate:743 {DSK}.mo", batch=True)
+    shell.onecmd(f"create /allocate:743 {DSK}_3.mo", batch=True)
     with open(f"{DSK}.mo", "wb") as f:
         f.truncate(380292)
 
-    shell.onecmd(f"mount t: /dms {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    shell.onecmd(f"mount src: /dms {DSK}", batch=True)
+    fs = shell.volumes.get('SRC')
     assert isinstance(fs, DMSFilesystem)
 
     # Init
-    shell.onecmd(f"init /dms /dev:dectape {DSK}.mo", batch=True)
-    shell.onecmd(f"mount ou: /dms /dev:dectape {DSK}.mo", batch=True)
-    shell.onecmd("ex ou:", batch=True)
-    shell.onecmd("dir ou:", batch=True)
-    shell.onecmd("copy t:*.ascii ou:", batch=True)
-    shell.onecmd("copy t:aaaa.user ou:aaaa.user:777;5555", batch=True)
-    shell.onecmd("copy t:bbbb.sys ou:", batch=True)
+    shell.onecmd(f"init /dms /dev:dectape {DSK}_3.mo", batch=True)
+    shell.onecmd(f"mount dms3: /dms /dev:dectape {DSK}_3.mo", batch=True)
+    shell.onecmd("ex dms3:", batch=True)
+    shell.onecmd("dir dms3:", batch=True)
+    shell.onecmd("copy src:*.ascii dms3:", batch=True)
+    shell.onecmd("copy src:aaaa.user dms3:aaaa.user:777;5555", batch=True)
+    shell.onecmd("copy src:bbbb.sys dms3:", batch=True)
 
     x1 = fs.read_bytes("50.ascii")
     x1 = x1.rstrip(b"\0")
@@ -423,7 +423,7 @@ def test_dms_dectape():
     for i in range(0, 50):
         assert f"{i:5d} ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890".encode("ascii") in x1
 
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get('DMS3')
     l = list(fs.filter_entries_list("*.ascii"))
     assert len(l) == 7
     l = list(fs.filter_entries_list("*.user"))
@@ -440,11 +440,14 @@ def test_dms_dectape():
     x1 = fs.read_bytes("aaaa.user")
     assert b"abcdefghijklmnopqrstuvwxyz" in x1
 
-    shell.onecmd("del ou:*.user", batch=True)
+    shell.onecmd("del dms3:*.user", batch=True)
     l = list(fs.filter_entries_list("*.user"))
     assert len(l) == 0
 
     # Test init mounted volume
-    shell.onecmd("init ou:", batch=True)
+    shell.onecmd("init dms3:", batch=True)
     with pytest.raises(Exception):
         fs.read_bytes("50.ascii")
+
+    shell.onecmd("dismount dms3:", batch=True)
+    shell.onecmd(f"del {DSK}_3.mo", batch=True)

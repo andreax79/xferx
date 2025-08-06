@@ -1274,11 +1274,8 @@ class DOS11Filesystem(AbstractRXBlockFilesystem):
             protection_code=protection_code,
         )
         if entry is not None:
-            f = DOS11File(entry)
-            try:
+            with entry.open(file_mode) as f:
                 f.write_block(content, 0, entry.length)
-            finally:
-                f.close()
 
     def create_file(
         self,

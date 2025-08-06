@@ -697,16 +697,13 @@ class DMSDirectoryEntry(AbstractDirectoryEntry):
             else:
                 file_mode = IMAGE
         # Always read the file as IMAGE
-        f = self.open(IMAGE)
-        try:
+        with self.open(IMAGE) as f:
             data = f.read_block(0, READ_FILE_FULL)
             if file_mode == ASCII:
                 words = from_bytes_to_12bit_words(data, file_mode=IMAGE)
                 return from_12bit_words_to_bytes(words, file_mode=ASCII)
             else:
                 return data
-        finally:
-            f.close()
 
     @property
     def is_empty(self) -> bool:
@@ -1109,8 +1106,7 @@ class DMSFilesystem(AbstractFilesystem):
             else:
                 file_mode = IMAGE
         # Always read the file as IMAGE
-        f = self.open_file(fullname, IMAGE)
-        try:
+        with self.open_file(fullname, IMAGE) as f:
             data = f.read_block(0, READ_FILE_FULL)
             if file_mode == ASCII:
                 # Convert IMAGE => words => ASCII
@@ -1118,8 +1114,6 @@ class DMSFilesystem(AbstractFilesystem):
                 return from_12bit_words_to_bytes(words, file_mode=ASCII)
             else:
                 return data
-        finally:
-            f.close()
 
     def write_bytes(
         self,

@@ -39,9 +39,12 @@ from ..commons import (
 from ..device.abstract import AbstractDevice
 
 __all__ = [
-    "UNIXFile",
+    "Bitmap",
+    "Dirent",
+    "InodeBitmap",
     "UNIXDirectory",
     "UNIXDirectoryEntry",
+    "UNIXFile",
     "UNIXFilesystem",
 ]
 
@@ -211,16 +214,16 @@ class UNIXFile(AbstractFile):
 class UNIXInode(ABC):
 
     fs: "UNIXFilesystem"
-    inode_num: int  #      inode number
-    flags: int  #          flags
-    nlinks: int  #         number of links to file
-    uid: int  #            user ID of owner
+    inode_num: int  #       inode number
+    flags: int  #           flags
+    nlinks: int  #          number of links to file
+    uid: int  #             user ID of owner
     gid: t.Optional[int]  # group ID of owner
-    size: int  #           size
-    addr: t.List[int]  #     block numbers or device numbers
-    atime: int = 0  #      time of last access
-    mtime: int = 0  #      time of last modification
-    ctime: int = 0  #      time of last change to the inode
+    size: int  #            size
+    addr: t.List[int]  #    block numbers or device numbers
+    atime: int = 0  #       time of last access
+    mtime: int = 0  #       time of last modification
+    ctime: int = 0  #       time of last change to the inode
 
     def __init__(self, fs: "UNIXFilesystem"):
         self.fs = fs
@@ -301,6 +304,31 @@ class UNIXDirectoryEntry(AbstractDirectoryEntry):
         self.inode_num = inode_num
         self._inode = inode
 
+    @classmethod
+    def link(
+        cls,
+        fs: "UNIXFilesystem",
+        parent: "UNIXDirectoryEntry",
+        filename: str,
+        inode: "UNIXInode",
+    ) -> "UNIXDirectoryEntry":
+        """
+        Creates a new hard link an existing inode
+        """
+        self = cls(fs, unix_join(parent.fullname, filename), inode.inode_num, inode)
+        # Create a directory entry for the new file
+        # parent = self.fs.get_file_entry(self.dirname)
+        directory = self.fs.directory_class.read(fs, parent.inode)
+        directory.entries.append(self.dirent())
+        directory.write()
+        # Increment the parent link count
+        self.inode.nlinks += 1
+        inode.write()
+        # Increment the child link count
+        inode.nlinks += 1
+        inode.write()
+        return self
+
     @property
     def inode(self) -> "UNIXInode":
         if self._inode is None:
@@ -335,13 +363,51 @@ class UNIXDirectoryEntry(AbstractDirectoryEntry):
     def creation_date(self) -> t.Optional[date]:
         return datetime.fromtimestamp(self.inode.mtime)
 
-    def delete(self) -> bool:
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
+    def dirent(self) -> "Dirent":
+        """
+        Return a Dirent object for this entry
+        """
+        return Dirent(self.inode_num, self.filename)
 
     def write(self) -> bool:
         """
         Write the directory entry
         """
+        parent = self.fs.get_file_entry(self.dirname)
+        directory = self.fs.directory_class.read(self.fs, parent.inode)
+        for i, entry in enumerate(directory.entries):
+            if entry.inode_num == self.inode_num:
+                # Update the existing entry
+                directory.entries[i] = self.dirent()
+                directory.write()
+                return True
+        return False
+
+    def unlink(self) -> bool:
+        """
+        Unlink the directory entry
+        Does not delete the inode, just removes the entry from the directory
+        """
+        # Delete the directory entry
+        parent = self.fs.get_file_entry(self.dirname)
+        directory = self.fs.directory_class.read(self.fs, parent.inode)
+        tmp = list(directory.entries)
+        directory.entries = [x for x in directory.entries if x.inode_num != self.inode_num]
+        if len(directory.entries) == len(tmp):
+            # Entry not found
+            return False
+        directory.write()
+        # Update the directory link count
+        if parent.inode.nlinks > 1:  # never set the parent link to 0
+            parent.inode.nlinks = parent.inode.nlinks - 1
+            parent.inode.write()
+        # Update the link count
+        if self.inode.nlinks > 0:
+            self.inode.nlinks = self.inode.nlinks - 1
+        self.inode.write()
+        return True
+
+    def delete(self) -> bool:
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
     def open(self, file_mode: t.Optional[str] = None) -> UNIXFile:
@@ -360,11 +426,35 @@ class UNIXDirectoryEntry(AbstractDirectoryEntry):
         return f"{self.inode_num:>5} {self.basename}"
 
 
+class Dirent:
+    """
+    Directory entry structure
+    """
+
+    inode_num: int  # Inode number
+    filename: str  # File name
+
+    def __init__(self, inode_num: int, filename: str):
+        self.inode_num = inode_num
+        self.filename = filename
+
+    def __str__(self) -> str:
+        return f"{self.inode_num:>5} {self.filename}"
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Dirent):
+            return False
+        return self.__dict__ == other.__dict__
+
+
 class UNIXDirectory:
+    """
+    UNIX Directory
+    """
 
     fs: "UNIXFilesystem"
-    inode: "UNIXInode"
-    entries: t.List[t.Tuple[int, str]]
+    inode: "UNIXInode"  # Inode of the directory
+    entries: t.List["Dirent"]  # List of directory entries
 
     def __init__(self, fs: "UNIXFilesystem", inode: "UNIXInode"):
         self.fs = fs
@@ -378,17 +468,15 @@ class UNIXDirectory:
         self = UNIXDirectory(fs, inode)
         if self.inode.isdir:
             self.entries = []
-            f = UNIXFile(self.inode)
-            try:
-                while True:
-                    data = f.read(struct.calcsize(self.fs.dir_format))
-                    inode_num, name = struct.unpack_from(self.fs.dir_format, data)
-                    name_ascii = name.decode("ascii", errors="ignore").rstrip("\x00")
-                    self.entries.append((inode_num, name_ascii))
-            except IOError:
-                pass
-            finally:
-                f.close()
+            with UNIXFile(self.inode) as f:
+                try:
+                    while True:
+                        data = f.read(struct.calcsize(self.fs.dir_format))
+                        inode_num, name = struct.unpack_from(self.fs.dir_format, data)
+                        name_ascii = name.decode("ascii", errors="ignore").rstrip("\x00")
+                        self.entries.append(Dirent(inode_num, name_ascii))
+                except IOError:
+                    pass
         return self
 
     def write(self) -> None:
@@ -454,29 +542,29 @@ class UNIXFilesystem(AbstractBlockFilesystem):
                 # More parts and not a directory, not found
                 return None
             # Get next part
-            name = parts.pop(0)
-            if name:
+            filename = parts.pop(0)
+            if filename:
                 # Search for the name in the directory
                 found = False
-                for no, nm in self.list_dir(inode):
-                    if no > 0 and nm == name:
-                        inode_num = no
+                for dirent in self.list_dir(inode):
+                    if dirent.inode_num > 0 and dirent.filename == filename:
+                        inode_num = dirent.inode_num
                         found = True
                         break
                 if not found:
                     return None
 
-    def list_dir(self, inode: UNIXInode) -> t.List[t.Tuple[int, str]]:
+    def list_dir(self, inode: UNIXInode) -> t.List[Dirent]:
         directory = self.directory_class.read(self, inode)
         return directory.entries
 
     def read_dir_entries(self, dirname: str) -> t.Iterator["UNIXDirectoryEntry"]:
         inode = self.get_inode(dirname)
         if inode:
-            for inode_num, filename in self.list_dir(inode):
-                if inode_num > 0:
-                    fullname = unix_join(dirname, filename)
-                    yield UNIXDirectoryEntry(self, fullname, inode_num)
+            for dirent in self.list_dir(inode):
+                if dirent.inode_num > 0:
+                    fullname = unix_join(dirname, dirent.filename)
+                    yield UNIXDirectoryEntry(self, fullname, dirent.inode_num)
 
     def filter_entries_list(
         self,
@@ -529,7 +617,7 @@ class UNIXFilesystem(AbstractBlockFilesystem):
         number_of_blocks: int,  # length in blocks
         creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,
-    ) -> t.Optional[UNIXDirectoryEntry]:
+    ) -> UNIXDirectoryEntry:
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
     def isdir(self, fullname: str) -> bool:
@@ -607,10 +695,10 @@ class UNIXFilesystem(AbstractBlockFilesystem):
                 if inode.isdir:
                     # Dump the directory entries
                     sys.stdout.write("Directory entries:\n")
-                    for inode_num, filename in self.list_dir(inode):
-                        if inode_num > 0:
-                            child_inode: t.Optional[UNIXInode] = self.read_inode(inode_num)
-                            sys.stdout.write(f"{child_inode} {filename}\n")
+                    for dirent in self.list_dir(inode):
+                        if dirent.inode_num > 0:
+                            child_inode: t.Optional[UNIXInode] = self.read_inode(dirent.inode_num)
+                            sys.stdout.write(f"{child_inode} {dirent.filename}\n")
         else:
             # Dump the entire filesystem
             sys.stdout.write(dump_struct(self.__dict__))

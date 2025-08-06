@@ -344,8 +344,7 @@ class DOS15DirectoryEntry(AbstractDirectoryEntry):
         if file_mode is None:
             file_mode = IMAGE
         # Always read the file as IMAGE
-        f = self.open(IMAGE)
-        try:
+        with self.open(IMAGE) as f:
             length = self.get_length()  # Number of blocks in the file
             result = bytearray()
             if file_mode == ASCII:
@@ -359,8 +358,6 @@ class DOS15DirectoryEntry(AbstractDirectoryEntry):
                     words = f.read_words_block(i)[:-2]
                     result += from_18bit_words_to_bytes(words, IMAGE)
             return bytes(result)
-        finally:
-            f.close()
 
     @property
     def fs(self) -> "DOS15Filesystem":

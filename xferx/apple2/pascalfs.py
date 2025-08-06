@@ -621,11 +621,8 @@ class PascalFilesystem(AbstractAppleDiskFilesystem):
         )
         if entry is not None:
             content = content + (b"\0" * BLOCK_SIZE)  # pad with zeros
-            f = entry.open(file_mode)
-            try:
+            with entry.open(file_mode) as f:
                 f.write_block(content, block_number=0, number_of_blocks=number_of_blocks)
-            finally:
-                f.close()
 
     def create_file(
         self,

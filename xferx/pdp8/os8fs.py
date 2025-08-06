@@ -1004,11 +1004,8 @@ class OS8Filesystem(AbstractFilesystem):
         entry = self.create_file(fullname, number_of_blocks, creation_date, file_type)
         if entry is not None:
             content = content + (b"\0" * OS8_BLOCK_SIZE_BYTES)
-            f = entry.open(file_mode)
-            try:
+            with entry.open(file_mode) as f:
                 f.write_block(content, block_number=0, number_of_blocks=entry.length)
-            finally:
-                f.close()
 
     def create_file(
         self,

@@ -249,7 +249,7 @@ def str_to_fiodec(val: str) -> t.List[int]:
             add_end_of_page()
             line_number = 1
             page_number += 1
-        elif ch == '\x1A':  # End of file
+        elif ch == '\x1a':  # End of file
             break
         else:
             ch = ch.upper()

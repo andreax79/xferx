@@ -36,11 +36,21 @@ __all__ = [
     "AbstractBlockFilesystem",
 ]
 
+AbstractFileT = t.TypeVar("AbstractFileT", bound="AbstractFile")
+
 
 class AbstractFile(ABC):
     """Abstract base class for file operations"""
 
     current_position: int = 0
+
+    def __enter__(self: AbstractFileT) -> AbstractFileT:
+        return self
+
+    def __exit__(
+        self, exc_type: t.Optional[type[BaseException]], exc_val: t.Optional[BaseException], exc_tb: t.Optional[t.Any]
+    ) -> None:
+        self.close()
 
     @abstractmethod
     def read_block(
@@ -149,6 +159,9 @@ class AbstractFile(ABC):
         if size is not None and self.current_position > size:
             self.current_position = size
 
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.__dict__})"
+
 
 class AbstractDirectoryEntry(ABC):
 
@@ -198,16 +211,16 @@ class AbstractDirectoryEntry(ABC):
 
     def read_bytes(self, file_mode: t.Optional[str] = None) -> bytes:
         """Get the content of the file"""
-        f = self.open(file_mode)
-        try:
+        with self.open(file_mode) as f:
             return f.read_block(0, READ_FILE_FULL)[: f.get_size()]
-        finally:
-            f.close()
 
     def read_text(self, encoding: str = "ascii", errors: str = "ignore", file_mode: str = ASCII) -> str:
         """Get the content of the file as text"""
         data = self.read_bytes(file_mode)
         return data.decode(encoding, errors)
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.__dict__})"
 
 
 class AbstractFilesystem:
@@ -339,14 +352,11 @@ class AbstractFilesystem:
             if end is None:
                 entry = self.get_file_entry(fullname)
                 end = entry.get_length() - 1
-            f = self.open_file(fullname, file_mode=IMAGE)
-            try:
+            with self.open_file(fullname, file_mode=IMAGE) as f:
                 for block_number in range(start, end + 1):
                     data = f.read_block(block_number)
                     sys.stdout.write(f"\nBLOCK NUMBER   {block_number:08}\n")
                     hex_dump(data)
-            finally:
-                f.close()
         elif hasattr(self, "read_block"):
             if start is None:
                 start = 0
@@ -365,6 +375,9 @@ class AbstractFilesystem:
         Get the list of the supported file types
         """
         return []
+
+    def __repr__(self) -> str:
+        return f"{self.__class__.__name__}({self.__dict__})"
 
 
 class AbstractBlockFilesystem(AbstractFilesystem):

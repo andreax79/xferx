@@ -1942,18 +1942,12 @@ class ProDOSFilesystem(AbstractAppleDiskFilesystem):
                 # Write the resource fork
                 resource_number_of_blocks = int(math.ceil(len(resource) / BLOCK_SIZE))
                 resource = resource + (b"\0" * BLOCK_SIZE)  # pad with zeros
-                f = entry.open(file_type, fork="RESOURCE.FORK")  # type: ignore
-                try:
+                with entry.open(file_type, fork="RESOURCE.FORK") as f:  # type: ignore
                     f.write_block(resource, block_number=0, number_of_blocks=resource_number_of_blocks)
-                finally:
-                    f.close()
             # Write the data fork
             content = content + (b"\0" * BLOCK_SIZE)  # pad with zeros
-            f = entry.open(file_mode)
-            try:
+            with entry.open(file_mode) as f:
                 f.write_block(content, block_number=0, number_of_blocks=number_of_blocks)
-            finally:
-                f.close()
 
     def create_file(
         self,

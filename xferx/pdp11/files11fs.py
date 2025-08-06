@@ -626,15 +626,12 @@ class Files11Filesystem(AbstractRXBlockFilesystem):
         Read directory by file number
         """
         header = self.read_file_header(file_number)
-        try:
-            f = Files11File(header)
+        with Files11File(header) as f:
             buffer = f.read_block(0, READ_FILE_FULL)
             for pos in range(0, len(buffer), DIRECTORY_FILE_ENTRY_LEN):
                 entry = Files11DirectoryEntry.read(self, buffer, position=pos, uic=uic)
                 if not entry.is_empty:
                     yield entry
-        finally:
-            f.close()
 
     def read_dir_entries(self, uic: UIC) -> t.Iterator["Files11DirectoryEntry"]:
         if uic == MFD_UIC:
@@ -766,15 +763,14 @@ class Files11Filesystem(AbstractRXBlockFilesystem):
             indexfs = self.read_file_header(INDEXF_SYS)
             sys.stdout.write("\n\nINDEXF.SYS Header\n\n")
             sys.stdout.write(dump_struct(indexfs.__dict__))
-            f = Files11File(indexfs)
-            sys.stdout.write(f"\n\nINDEXF.SYS {f.header.length}\n\n")
-            for i in range(1, f.header.length):
-                try:
-                    h = self.read_file_header(i)
-                    sys.stdout.write(f"{h}\n")
-                except FileNotFoundError:
-                    pass
-            f.close()
+            with Files11File(indexfs) as f:
+                sys.stdout.write(f"\n\nINDEXF.SYS {f.header.length}\n\n")
+                for i in range(1, f.header.length):
+                    try:
+                        h = self.read_file_header(i)
+                        sys.stdout.write(f"{h}\n")
+                    except FileNotFoundError:
+                        pass
 
     def get_size(self) -> int:
         """
