@@ -202,13 +202,14 @@ DELETE          Removes files from a volume
     if not args:
         line = ask("Files? ")
         args = shlex.split(line)
-    volume_id, pattern = splitdrive(args[0])
-    fs = shell.volumes.get(volume_id, cmd="DEL")
-    match = False
-    for x in fs.filter_entries_list(pattern, expand=False):  # don't expand directories
-        match = True
-        if not x.delete():
-            sys.stdout.write("?DEL-F-Error deleting %s\n" % x.fullname)
+    for arg in args:
+        volume_id, pattern = splitdrive(arg)
+        fs = shell.volumes.get(volume_id, cmd="DEL")
+        match = False
+        for x in fs.filter_entries_list(pattern, expand=False):  # don't expand directories
+            match = True
+            if not x.delete():
+                sys.stdout.write("?DEL-F-Error deleting %s\n" % x.fullname)
     if not match:
         raise CommandError("?DEL-F-No files")
 
