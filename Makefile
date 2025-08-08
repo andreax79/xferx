@@ -1,46 +1,50 @@
 SHELL=/bin/bash -e
 
 help:
-	@echo - make black      Format code
-	@echo - make isort      Sort imports
-	@echo - make lint       Run lint
-	@echo - make typecheck  Typecheck
+	@echo - make black      	Format code
+	@echo - make isort      	Sort imports
+	@echo - make lint       	Run linter
+	@echo - make typecheck  	Check types
+	@echo - make clean      	Clean the project directory
+	@echo - make test       	Run tests
+	@echo - make coverage   	Run tests with coverage
+	@echo - make venv       	Create a virtual environment and install dependencies
+	@echo - make readme-preview Preview README with grip
 
+.PHONY: lint
 lint:
-	flake8 xferx
+	@uv run flake8 xferx
 
 .PHONY: isort
 isort:
-	@isort --profile black xferx.py xferx tests
+	@uv run isort --profile black xferx.py xferx tests
 
 .PHONY: black
 black: isort
-	@black -S xferx.py xferx tests
+	@uv run black -S xferx.py xferx tests
 
 .PHONY: typecheck
 typecheck:
-	mypy --strict --no-warn-unused-ignores xferx
+	@uv run mypy --strict --no-warn-unused-ignores xferx
 
 .PHONY: clean
 clean:
-	-rm -rf build dist
-	-rm -rf *.egg-info
-	-rm -rf bin lib share pyvenv.cfg
+	-rm -rf build dist bin lib lib64 share pyvenv.cfg *.egg-info
 
 .PHONY: test
 test:
-	pytest
+	@uv run pytest
 
 .PHONY: coverage
 coverage:
-	@pytest --cov --cov-report=term-missing
+	@uv run pytest --cov --cov-report=term-missing
 
 .PHONY: typecheck
 venv:
-	python3 -m venv .
-	. bin/activate; pip install -Ur requirements.txt
-	. bin/activate; pip install -Ur requirements-dev.txt
+	@uv venv
+	@uv pip install -e .
+	@uv pip install -e ".[dev]"
 
 .PHONY: readme-preview
 readme-preview:
-	@. bin/activate; grip 0.0.0.0:8080
+	@uv run grip 0.0.0.0:8080

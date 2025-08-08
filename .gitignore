@@ -36,3 +36,4 @@ nosetests.xml
 .pydevproject
 /pyvenv.cfg
 tmp
+uv.lock

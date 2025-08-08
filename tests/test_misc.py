@@ -20,7 +20,7 @@ def test_bytes_to_word():
 def test_word_to_bytes():
     # Test with valid input
     assert word_to_bytes(1) == b"\x01\x00"
-    assert word_to_bytes(65535) == b"\xFF\xFF"
+    assert word_to_bytes(65535) == b"\xff\xff"
     assert len(word_to_bytes(1234)) == 2
     for i in range(0, 1 << 16):
         assert bytes_to_word(word_to_bytes(i)) == i

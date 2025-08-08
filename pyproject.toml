@@ -1,6 +1,44 @@
+[project]
+name = "xferx"
+readme = { file = "README.md", content-type = "text/markdown" }
+license = { file = "LICENSE" }
+authors = [
+    { name = "Andrea Bonomi", email = "andrea.bonomi@gmail.com" }
+]
+description = "XFERX is an utility for transferring files between various file systems."
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent"
+]
+dependencies = []
+dynamic = ["version"]
+
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project.optional-dependencies]
+dev = [
+    "pytest"
+]
+
+[project.scripts]
+xferx = "xferx.__main__:main"
+
+[project.urls]
+GitHub = "https://github.com/andreax79/xferx"
+Issues = "http://github.com/andreax79/xferx/issues"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.dynamic]
+version = { file = "xferx/VERSION" }
+
+[tool.setuptools.packages.find]
+where = ["."]
 
 [tool.black]
 line-length = 120
@@ -13,3 +51,21 @@ exclude_lines = [ "# pragma: no cover", "if TYPE_CHECKING:" ]
 
 [tool.isort]
 profile = "black"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "black>=23.3.0",
+    "build>=1.1.1",
+    "coverage[toml]>=7.2.7",
+    "flake8>=3.9.2",
+    "grip>=4.6.2",
+    "isort>=5.11.5",
+    "mypy>=1.4.1",
+    "pytest>=7.4.4",
+    "pytest-cov>=4.1.0",
+    "setuptools>=65.5.1",
+    "twine<3.4",
+]
