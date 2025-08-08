@@ -154,7 +154,7 @@ class DOS15File(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -654,10 +654,10 @@ class DOS15Filesystem(AbstractFilesystem):
           |                |   UFD     |    |    RIB    |    +---------+
           +--------------> +   User    +--> | Retrieval +--> | Block 1 |
                            |   File    |    |   Block   |    |         |
-                           | Directory |    +-----------+    +-------+-+
-                           +-----------+                       /|\   |
-                                                                |   \|/
-                                                             +--+------+
+                           | Directory |    +-----------+    +--^----+-+
+                           +-----------+                        |    |
+                                                                |    |
+                                                             +--+----.-+
                                                              | Block 2 |
                                                              +-^-----+-+
 
@@ -763,7 +763,7 @@ class DOS15Filesystem(AbstractFilesystem):
         number_of_blocks: int,  # length in blocks
         creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,
-    ) -> t.Optional[DOS15DirectoryEntry]:
+    ) -> DOS15DirectoryEntry:
         """
         Create a new file with a given length in number of blocks
         """
@@ -777,7 +777,7 @@ class DOS15Filesystem(AbstractFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,

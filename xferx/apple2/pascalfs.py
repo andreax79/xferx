@@ -74,7 +74,7 @@ FILE_TYPES = {
 }
 
 
-def pascal_to_str(buffer: bytes) -> str:
+def pascal_to_str(buffer: t.Union[bytes, bytearray]) -> str:
     """
     Convert a Pascal string to a Python string
     """
@@ -190,7 +190,7 @@ class PascalFile(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -602,7 +602,7 @@ class PascalFilesystem(AbstractAppleDiskFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,
@@ -631,7 +631,7 @@ class PascalFilesystem(AbstractAppleDiskFilesystem):
         creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,  # optional file type
         last_block_bytes: int = 0,  # number of bytes in last block
-    ) -> t.Optional[PascalDirectoryEntry]:
+    ) -> PascalDirectoryEntry:
         fullname = pascal_canonical_filename(fullname)  # type: ignore
         try:
             self.get_file_entry(fullname).delete()

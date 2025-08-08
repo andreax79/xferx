@@ -211,7 +211,7 @@ class RXBlockDevice(BlockDevice):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:

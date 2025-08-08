@@ -78,7 +78,7 @@ def cos_file_type_to_os8_extension(file_type: str) -> str:
     return {v: k for k, v in COS_EXTENSIONS.items()}.get(file_type, file_type)
 
 
-def from_bytes_to_12bit_words(byte_data: bytes) -> t.List[int]:
+def from_bytes_to_12bit_words(byte_data: t.Union[bytes, bytearray]) -> t.List[int]:
     """
     Convert bytes to 12-bit words.
     """
@@ -154,7 +154,7 @@ def cos_codes_to_ascii(words: t.List[int]) -> bytes:
     return bytes(out)
 
 
-def ascii_to_cos_codes(text: bytes) -> t.List[int]:
+def ascii_to_cos_codes(text: t.Union[bytes, bytearray]) -> t.List[int]:
     words: t.List[int] = []
     lines = text.decode("ascii").splitlines()
 
@@ -328,7 +328,7 @@ class COS300Filesystem(OS8Filesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,

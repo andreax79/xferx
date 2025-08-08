@@ -160,7 +160,7 @@ def from_12bit_words_to_bytes(words: list[int], file_mode: str = ASCII) -> bytes
     return bytes(data)
 
 
-def from_bytes_to_12bit_words(byte_data: bytes, file_mode: str = "ASCII") -> t.List[int]:
+def from_bytes_to_12bit_words(byte_data: t.Union[bytes, bytearray], file_mode: str = "ASCII") -> t.List[int]:
     """
     Convert bytes to 12-bit words.
     """
@@ -256,7 +256,7 @@ class OS8File(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -808,7 +808,7 @@ class OS8Partition:
         number_of_blocks: int,  # length in blocks
         creation_date: t.Optional[date] = None,  # t.optional creation date
         file_type: t.Optional[str] = None,
-    ) -> t.Optional[OS8DirectoryEntry]:
+    ) -> OS8DirectoryEntry:
         try:
             self.get_file_entry(fullname).delete()
         except FileNotFoundError:
@@ -995,17 +995,16 @@ class OS8Filesystem(AbstractFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,
     ) -> None:
         number_of_blocks = int(math.ceil(len(content) / OS8_BLOCK_SIZE_BYTES))
         entry = self.create_file(fullname, number_of_blocks, creation_date, file_type)
-        if entry is not None:
-            content = content + (b"\0" * OS8_BLOCK_SIZE_BYTES)
-            with entry.open(file_mode) as f:
-                f.write_block(content, block_number=0, number_of_blocks=entry.length)
+        content = content + (b"\0" * OS8_BLOCK_SIZE_BYTES)
+        with entry.open(file_mode) as f:
+            f.write_block(content, block_number=0, number_of_blocks=entry.length)
 
     def create_file(
         self,
@@ -1013,7 +1012,7 @@ class OS8Filesystem(AbstractFilesystem):
         length: int,  # length in blocks
         creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,
-    ) -> t.Optional[OS8DirectoryEntry]:
+    ) -> OS8DirectoryEntry:
         partition, fullname = os8_split_fullname(self.current_partition, fullname, wildcard=False)  # type: ignore
         return self.get_partition(partition).create_file(fullname, length, creation_date, file_type)
 

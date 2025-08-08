@@ -343,7 +343,7 @@ class ProDOSFile(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -386,7 +386,7 @@ class ProDOSFile(AbstractFile):
         self.closed = True
 
     def __str__(self) -> str:
-        return str(self.entry)
+        return self.entry.fullname
 
 
 class IndexBlock:
@@ -467,7 +467,11 @@ class ProDOSAbstractDirEntry(AbstractDirectoryEntry):
 
     @classmethod
     def read(
-        cls, fs: "ProDOSFilesystem", parent: t.Optional["FileEntry"], buffer: bytes, position: int = 0
+        cls,
+        fs: "ProDOSFilesystem",
+        parent: t.Optional["FileEntry"],
+        buffer: t.Union[bytes, bytearray],
+        position: int = 0,
     ) -> t.Optional["ProDOSAbstractDirEntry"]:
         from .ppm import PPMDirectoryEntry
 
@@ -617,7 +621,11 @@ class VolumeDirectoryHeader(ProDOSAbstractDirEntry):
 
     @classmethod
     def read(
-        cls, fs: "ProDOSFilesystem", parent: t.Optional["FileEntry"], buffer: bytes, position: int = 0
+        cls,
+        fs: "ProDOSFilesystem",
+        parent: t.Optional["FileEntry"],
+        buffer: t.Union[bytes, bytearray],
+        position: int = 0,
     ) -> "VolumeDirectoryHeader":
         self = VolumeDirectoryHeader(fs, parent)
         (
@@ -726,7 +734,11 @@ class SubdirectoryHeader(ProDOSAbstractDirEntry):
 
     @classmethod
     def read(
-        cls, fs: "ProDOSFilesystem", parent: t.Optional["FileEntry"], buffer: bytes, position: int = 0
+        cls,
+        fs: "ProDOSFilesystem",
+        parent: t.Optional["FileEntry"],
+        buffer: t.Union[bytes, bytearray],
+        position: int = 0,
     ) -> "SubdirectoryHeader":
         self = SubdirectoryHeader(fs, parent)
         (
@@ -842,7 +854,11 @@ class FileEntry(ProDOSAbstractDirEntry):
 
     @classmethod
     def read(
-        cls, fs: "ProDOSFilesystem", parent: t.Optional["FileEntry"], buffer: bytes, position: int = 0
+        cls,
+        fs: "ProDOSFilesystem",
+        parent: t.Optional["FileEntry"],
+        buffer: t.Union[bytes, bytearray],
+        position: int = 0,
     ) -> "FileEntry":
         self = cls(fs, parent)
         (
@@ -1586,7 +1602,7 @@ class ExtendedFileFork(RegularFileEntry):
         cls,
         fs: "ProDOSFilesystem",
         parent: t.Optional["FileEntry"],
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         position: int = 0,
     ) -> "ExtendedFileFork":
         assert parent is not None
@@ -1900,7 +1916,7 @@ class ProDOSFilesystem(AbstractAppleDiskFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[t.Union[date, datetime]] = None,  # optional creation date
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,
@@ -1959,7 +1975,7 @@ class ProDOSFilesystem(AbstractAppleDiskFilesystem):
         aux_type: t.Optional[int] = None,  # optional auxiliary type
         length_bytes: t.Optional[int] = None,  # optional length in bytes
         resource_length_bytes: t.Optional[int] = None,  # optional resource fork length in bytes
-    ) -> t.Optional["FileEntry"]:
+    ) -> "FileEntry":
         """
         Create a new file with a given length in number of blocks
         """

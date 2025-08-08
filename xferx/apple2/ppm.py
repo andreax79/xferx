@@ -133,7 +133,11 @@ class PPMDirectoryEntry(AbstractDirectoryFileEntry):
 
     @classmethod
     def read(
-        cls, fs: "ProDOSFilesystem", parent: t.Optional["FileEntry"], buffer: bytes, position: int = 0
+        cls,
+        fs: "ProDOSFilesystem",
+        parent: t.Optional["FileEntry"],
+        buffer: t.Union[bytes, bytearray],
+        position: int = 0,
     ) -> "FileEntry":
         self: PPMDirectoryEntry = super().read(fs, parent, buffer, position)  # type: ignore
         # Read the header
@@ -348,7 +352,7 @@ class PPMVolumeEntry(RegularFileEntry):
         cls,
         fs: "ProDOSFilesystem",
         parent: t.Optional["FileEntry"],
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         position: int = 0,
     ) -> "PPMVolumeEntry":
         assert parent is not None

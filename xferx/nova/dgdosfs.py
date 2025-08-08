@@ -185,7 +185,7 @@ def format_attr(attr: int, long: bool = False) -> str:
     )
 
 
-def swap_bytes(data: bytes) -> bytes:
+def swap_bytes(data: t.Union[bytes, bytearray]) -> bytes:
     """
     Swap the bytes in a byte array
     """
@@ -542,7 +542,7 @@ class DGDOSFile(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -1396,7 +1396,7 @@ class DGDOSFilesystem(AbstractBlockFilesystem):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -1541,7 +1541,7 @@ class DGDOSFilesystem(AbstractBlockFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,
@@ -1576,7 +1576,7 @@ class DGDOSFilesystem(AbstractBlockFilesystem):
         creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,
         length_bytes: t.Optional[int] = None,  # optional length in bytes
-    ) -> t.Optional[UserFileDescriptor]:
+    ) -> UserFileDescriptor:
         """
         Create a new file with a given length in number of blocks
         """

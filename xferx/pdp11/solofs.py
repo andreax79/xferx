@@ -130,22 +130,22 @@ def solo_canonical_filename(fullname: t.Optional[str], wildcard: bool = False, s
         return "".join(filter(filter_fn, fullname or "")).upper()[:ID_LENGTH]
 
 
-def solo_to_ascii(data: bytes) -> bytes:
+def solo_to_ascii(data: t.Union[bytes, bytearray]) -> bytes:
     if not data:
-        return data
+        return bytes(data)
     if not EM in data:
         data = data.rstrip(b"\0")
     else:
         data = data.split(EM)[0]
-    return data
+    return bytes(data)
 
 
-def ascii_to_solo(data: bytes) -> bytes:
+def ascii_to_solo(data: t.Union[bytes, bytearray]) -> bytes:
     if not data:
-        return data
+        return bytes(data)
     if not data.endswith(EM):
         data += EM
-    return data
+    return bytes(data)
 
 
 class SOLOFile(AbstractFile):
@@ -189,7 +189,7 @@ class SOLOFile(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -268,7 +268,7 @@ class SOLOSegment(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -938,7 +938,7 @@ class SOLOFilesystem(AbstractRXBlockFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,

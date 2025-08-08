@@ -55,7 +55,7 @@ class BlockDevice(AbstractDevice):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -71,3 +71,6 @@ class BlockDevice(AbstractDevice):
 
     def close(self) -> None:
         self.f.close()
+
+    def __str__(self) -> str:
+        return str(self.f)

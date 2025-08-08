@@ -137,7 +137,7 @@ class CAPS11File(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -477,7 +477,7 @@ class CAPS11Filesystem(AbstractFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,
@@ -494,8 +494,8 @@ class CAPS11Filesystem(AbstractFilesystem):
         number_of_blocks: int,  # length in blocks
         creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,
-        content: t.Optional[bytes] = None,
-    ) -> t.Optional[CAPS11DirectoryEntry]:
+        content: t.Union[bytes, bytearray, None] = None,
+    ) -> CAPS11DirectoryEntry:
         """
         Create a new file with a given length in number of blocks
         """

@@ -85,7 +85,7 @@ class DOS11MagTapeFile(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -396,7 +396,7 @@ class DOS11MagTapeFilesystem(AbstractFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,
@@ -420,9 +420,9 @@ class DOS11MagTapeFilesystem(AbstractFilesystem):
         number_of_blocks: int,  # length in blocks
         creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,
-        content: t.Optional[bytes] = None,
+        content: t.Union[bytes, bytearray, None] = None,
         protection_code: int = DEFAULT_PROTECTION_CODE,
-    ) -> t.Optional[DOS11MagTapeDirectoryEntry]:
+    ) -> DOS11MagTapeDirectoryEntry:
         """
         Create a new file with a given length in number of blocks
         """

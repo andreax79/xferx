@@ -175,7 +175,7 @@ class Files11File(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -597,7 +597,7 @@ class Files11Filesystem(AbstractRXBlockFilesystem):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -697,7 +697,7 @@ class Files11Filesystem(AbstractRXBlockFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,
@@ -710,7 +710,7 @@ class Files11Filesystem(AbstractRXBlockFilesystem):
         number_of_blocks: int,  # length in blocks
         creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,
-    ) -> t.Optional[Files11DirectoryEntry]:
+    ) -> Files11DirectoryEntry:
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:

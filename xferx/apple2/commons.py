@@ -52,7 +52,7 @@ class ProDOSFileInfo:
         self.aux_type = aux_type
 
     @classmethod
-    def read(cls, buffer: bytes, position: int) -> "ProDOSFileInfo":
+    def read(cls, buffer: t.Union[bytes, bytearray], position: int) -> "ProDOSFileInfo":
         self = cls()
         (
             self.access,
@@ -81,7 +81,9 @@ class ProDOSFileInfo:
         return f"Access: {self.access:04X} File type: {self.file_type:04X} Aux type: {self.aux_type:08X}"
 
 
-def decode_apple_single(content: bytes) -> t.Tuple[bytes, t.Optional[bytes], t.Optional[ProDOSFileInfo]]:
+def decode_apple_single(
+    content: t.Union[bytes, bytearray],
+) -> t.Tuple[bytes, t.Optional[bytes], t.Optional[ProDOSFileInfo]]:
     """
     Extract data fork and metadata from an AppleSingle file
 
@@ -122,9 +124,9 @@ def decode_apple_single(content: bytes) -> t.Tuple[bytes, t.Optional[bytes], t.O
             prodos_file_info = ProDOSFileInfo.read(content, entry_offset)
     if data_fork_offset == 0:
         raise ValueError("Data fork not found")
-    data = content[data_fork_offset : data_fork_offset + data_fork_length]
+    data = bytes(content[data_fork_offset : data_fork_offset + data_fork_length])
     if resource_fork_offset:
-        resource = content[resource_fork_offset : resource_fork_offset + resource_fork_length]
+        resource = bytes(content[resource_fork_offset : resource_fork_offset + resource_fork_length])
     return data, resource, prodos_file_info
 
 

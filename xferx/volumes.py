@@ -112,12 +112,16 @@ class Volumes(object):
             # windows
             for letter in self._drive_letters():
                 self.volumes[letter] = NativeFilesystem(f"{letter.upper()}:")
+                self.volumes[letter].target = letter
+                self.volumes[letter].source = letter
             current_drive = os.getcwd().split(":")[0].upper()
             self.defdev = current_drive
             self.logical["SY"] = current_drive
         else:
             # posix
             self.volumes["N"] = NativeFilesystem()
+            self.volumes["N"].source = "/"
+            self.volumes["N"].target = "N"
             self.logical[SYSTEM_VOLUME] = "N"
             self.defdev = SYSTEM_VOLUME
 
@@ -241,7 +245,10 @@ class Volumes(object):
             kwargs["device_type"] = device_type
         try:
             filesystem = FILESYSTEMS.get(fstype or "rt11", RT11Filesystem)
-            self.volumes[logical] = filesystem.mount(fs.open_file(fullname), **kwargs)
+            entry = fs.get_file_entry(fullname)
+            self.volumes[logical] = filesystem.mount(entry.open(), **kwargs)
+            self.volumes[logical].target = logical
+            self.volumes[logical].source = f"{volume_id}:{entry.fullname}"
             sys.stdout.write(f"?{cmd}-I-Disk {path} mounted to {logical}:\n")
         except Exception:
             if verbose:

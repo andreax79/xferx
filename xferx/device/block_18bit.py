@@ -60,7 +60,7 @@ def from_18bit_words_to_bytes(words: list[int], file_type: str = ASCII) -> bytes
     return bytes(data)
 
 
-def from_bytes_to_18bit_words(data: bytes, file_type: str = ASCII) -> t.List[int]:
+def from_bytes_to_18bit_words(data: t.Union[bytes, bytearray], file_type: str = ASCII) -> t.List[int]:
     """
     Convert 3 bytes to 18bit words, keeping only the lower 6 bits of each byte (IMAGE)
     or 2 bytes to 18bit words (ASCII)

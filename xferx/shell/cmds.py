@@ -685,7 +685,7 @@ SHOW VOLUMES      Show the device assignments
     sys.stdout.write("-------\n")
     for k, v in shell.volumes.volumes.items():
         label = f"{k}:"
-        sys.stdout.write(f"{label:<6} {v}\n")
+        sys.stdout.write(f"{label:<6} {v.fs_name.upper():<10} {v.source}\n")
     for k, v in shell.volumes.logical.items():  # type: ignore
         label = f"{k}:"
         sys.stdout.write(f"{label:<4} = {v}:\n")

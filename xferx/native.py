@@ -81,7 +81,7 @@ class NativeFile(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -243,6 +243,9 @@ class NativeDirectoryEntry(AbstractDirectoryEntry):
 
 class NativeFilesystem(AbstractFilesystem):
 
+    fs_name = "native"  # Filesystem name
+    fs_description = "Native Filesystem"  # Filesystem description
+
     @classmethod
     def mount(
         cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
@@ -307,7 +310,7 @@ class NativeFilesystem(AbstractFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,
@@ -331,7 +334,7 @@ class NativeFilesystem(AbstractFilesystem):
         creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,
         length_bytes: t.Optional[int] = None,  # optional length in bytes
-    ) -> t.Optional[NativeDirectoryEntry]:
+    ) -> NativeDirectoryEntry:
         """
         Create a new file with a given length
         """

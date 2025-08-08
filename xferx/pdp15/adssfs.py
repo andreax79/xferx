@@ -398,7 +398,7 @@ class ADSSFile(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -1320,7 +1320,7 @@ class ADSSFilesystem(AbstractFilesystem):
         number_of_blocks: int,  # length in blocks
         creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,
-    ) -> t.Optional["ADSSDirectoryEntry"]:
+    ) -> "ADSSDirectoryEntry":
         """
         Create a new file with a given length in number of blocks
         """
@@ -1345,7 +1345,7 @@ class ADSSFilesystem(AbstractFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,
@@ -1355,16 +1355,15 @@ class ADSSFilesystem(AbstractFilesystem):
         """
         fullname = adss_canonical_filename(fullname)
         file_mode = file_mode or get_file_mode(fullname)
-        blocks_content = list(encode_block_format(content, file_mode, words_per_block=WORDS_PER_BLOCK - 1))
+        blocks_content = list(encode_block_format(bytes(content), file_mode, words_per_block=WORDS_PER_BLOCK - 1))
         number_of_blocks = len(blocks_content)
         # Create the file entry
         entry = self.create_file(fullname, number_of_blocks, creation_date, file_type)
         # Write the file content
-        if entry is not None:
-            for block, block_content in zip(entry.get_block_contents(), blocks_content):
-                assert len(block_content) == WORDS_PER_BLOCK - 1
-                block.words[: WORDS_PER_BLOCK - 1] = block_content
-                self.write_words_block(block.block, block.words)
+        for block, block_content in zip(entry.get_block_contents(), blocks_content):
+            assert len(block_content) == WORDS_PER_BLOCK - 1
+            block.words[: WORDS_PER_BLOCK - 1] = block_content
+            self.write_words_block(block.block, block.words)
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         entries = self.filter_entries_list(pattern, wildcard=True)

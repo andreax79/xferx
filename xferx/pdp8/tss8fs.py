@@ -296,7 +296,7 @@ def from_12bit_words_to_bytes(words: list[int], file_mode: str = ASCII) -> bytes
     return bytes(data)
 
 
-def from_bytes_to_12bit_words(data: bytes, file_mode: str = ASCII) -> list[int]:
+def from_bytes_to_12bit_words(data: t.Union[bytes, bytearray], file_mode: str = ASCII) -> list[int]:
     """
     Convert bytes back to 12-bit words
     """
@@ -366,7 +366,7 @@ class TSS8File(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -1511,17 +1511,16 @@ class TSS8Filesystem(AbstractFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,
     ) -> None:
         number_of_blocks = int(math.ceil(len(content) / TSS8_BLOCK_SIZE_BYTES))
         entry = self.create_file(fullname, number_of_blocks, creation_date, file_type)
-        if entry is not None:
-            content = content + (b"\0" * TSS8_BLOCK_SIZE_BYTES)
-            with entry.open(file_mode) as f:
-                f.write_block(content, block_number=0, number_of_blocks=entry.length)
+        content = content + (b"\0" * TSS8_BLOCK_SIZE_BYTES)
+        with entry.open(file_mode) as f:
+            f.write_block(content, block_number=0, number_of_blocks=entry.length)
 
     def create_file(
         self,
@@ -1529,7 +1528,7 @@ class TSS8Filesystem(AbstractFilesystem):
         number_of_blocks: int,  # length in blocks
         creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,
-    ) -> t.Optional[UserFileDirectoryEntry]:
+    ) -> UserFileDirectoryEntry:
         try:
             entry = self.get_file_entry(fullname)
             entry.resize(number_of_blocks)

@@ -245,7 +245,7 @@ class RSTSFile(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -969,13 +969,13 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
     MFD Label ---> MFD Name ---> MFD Name --> ...
                       |
                       |
-                     \|/
+                      .
                   UFD Label ---> UFD Name --> UFD Name --> ...
                                     |
-                                   \|/
+                                    v
                                UFD Account
                                     |
-                                   \|/
+                                    v
                                 Retrieval --> Retrieval --> ...
 
     RDS1.x directory structure:
@@ -986,10 +986,10 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
                     |      |
                     |      +----> UFD Name --> UFD Name --> ...
                     |      |         |
-                    |      |        \|/
+                    |      |         v
                     |      |    UFD Account
                     |      |         |
-                    |      |        \|/
+                    |      |         v
                     |      |     Retrieval --> Retrieval --> ...
                     |      |
                     |      +----> UFD Name --> UFD Name --> ...
@@ -1194,7 +1194,7 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
         dcn: t.Optional[int] = None,
@@ -1289,7 +1289,7 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,
@@ -1302,7 +1302,7 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
         number_of_blocks: int,  # length in blocks
         creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,
-    ) -> t.Optional[UFDNameEntry]:
+    ) -> UFDNameEntry:
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:

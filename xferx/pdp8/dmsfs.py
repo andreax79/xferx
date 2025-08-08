@@ -219,7 +219,7 @@ def from_12bit_words_to_bytes(words: list[int], file_mode: str = ASCII) -> bytes
     return bytes(result)
 
 
-def from_bytes_to_12bit_words(byte_data: bytes, file_mode: str = "ASCII") -> t.List[int]:
+def from_bytes_to_12bit_words(byte_data: t.Union[bytes, bytearray], file_mode: str = "ASCII") -> t.List[int]:
     """
     Convert bytes to 12-bit words.
     """
@@ -341,7 +341,7 @@ class DMSFile(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -1118,7 +1118,7 @@ class DMSFilesystem(AbstractFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,
@@ -1145,14 +1145,13 @@ class DMSFilesystem(AbstractFilesystem):
         number_of_blocks = int(math.ceil(len(words) * 1.0 / DATA_BLOCK_SIZE_WORDS))
         entry = self.create_file(fullname, number_of_blocks, creation_date, file_type)
         # Write blocks
-        if entry is not None:
-            blocks = entry.get_blocks()
-            for i, block in enumerate(blocks):
-                block_words = words[i * DATA_BLOCK_SIZE_WORDS : (i + 1) * DATA_BLOCK_SIZE_WORDS]
-                block_words.extend([0] * (BLOCK_SIZE_WORDS - len(block_words)))
-                # The last word of the block is the link to the next block
-                block_words[-1] = blocks[i + 1] if i + 1 < len(blocks) else 0
-                entry.dn.fs.write_words_block(block, block_words)
+        blocks = entry.get_blocks()
+        for i, block in enumerate(blocks):
+            block_words = words[i * DATA_BLOCK_SIZE_WORDS : (i + 1) * DATA_BLOCK_SIZE_WORDS]
+            block_words.extend([0] * (BLOCK_SIZE_WORDS - len(block_words)))
+            # The last word of the block is the link to the next block
+            block_words[-1] = blocks[i + 1] if i + 1 < len(blocks) else 0
+            entry.dn.fs.write_words_block(block, block_words)
 
     def create_file(
         self,
@@ -1160,7 +1159,7 @@ class DMSFilesystem(AbstractFilesystem):
         number_of_blocks: int,  # length in blocks
         creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,
-    ) -> t.Optional[DMSDirectoryEntry]:
+    ) -> DMSDirectoryEntry:
         """
         Create a new file with a given length in number of blocks
         """
@@ -1188,8 +1187,9 @@ class DMSFilesystem(AbstractFilesystem):
                 dn.entries[file_number] = entry
                 dn.write()
                 break
-        if entry is not None:
-            sam.write()
+        if entry is None:
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), fullname)
+        sam.write()
         return entry
 
     def isdir(self, fullname: str) -> bool:

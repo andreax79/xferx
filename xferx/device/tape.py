@@ -77,7 +77,7 @@ class Tape(AbstractDevice):
         bc = self.f.read(4)
         return buffer
 
-    def tape_write_forward(self, data: bytes) -> None:
+    def tape_write_forward(self, data: t.Union[bytes, bytearray]) -> None:
         """
         Starting at the current position, write the record length (4 bytes)
         Then write the date record and the trailing record length (4 bytes).
@@ -152,3 +152,6 @@ class Tape(AbstractDevice):
 
     def close(self) -> None:
         self.f.close()
+
+    def __str__(self) -> str:
+        return str(self.f)

@@ -23,6 +23,7 @@ import errno
 import io
 import math
 import os
+import re
 import sys
 import typing as t
 from datetime import date
@@ -57,6 +58,8 @@ DEFAULT_DIR_SEGMENT = 6
 DIR_ENTRY_SIZE = 14
 DIRECTORY_SEGMENT_HEADER_SIZE = 10
 DIRECTORY_SEGMENT_SIZE = BLOCK_SIZE * 2
+PARTITION_FULLNAME_RE = re.compile(r"^\[(\d+)\](.*)$")
+MAX_PARTITION_SIZE = (1 < 16) - 1
 
 E_TENT = 1  # Tentative file
 E_MPTY = 2  # Empty area
@@ -117,6 +120,27 @@ def rt11_canonical_filename(fullname: t.Optional[str], wildcard: bool = False) -
     return f"{filename}.{extension}"
 
 
+def rt11_split_fullname(
+    partition: int, fullname: t.Optional[str], wildcard: bool = True
+) -> t.Tuple[int, t.Optional[str]]:
+    """
+    Split the partition number from the fullname
+
+    [1]filename.ext -> 1, filename.ext
+    """
+    if fullname:
+        try:
+            match = PARTITION_FULLNAME_RE.match(fullname)
+            if match:
+                partition_str, fullname = match.groups()
+                partition = int(partition_str)
+        except Exception:
+            pass
+        if fullname:
+            fullname = rt11_canonical_filename(fullname, wildcard=wildcard)
+    return partition, fullname
+
+
 class RT11File(AbstractFile):
     entry: "RT11DirectoryEntry"
     closed: bool
@@ -141,14 +165,14 @@ class RT11File(AbstractFile):
             raise OSError(errno.EIO, os.strerror(errno.EIO))
         if block_number + number_of_blocks > self.entry.length:
             number_of_blocks = self.entry.length - block_number
-        return self.entry.segment.fs.read_block(
+        return self.entry.segment.partition.read_block(
             self.entry.file_position + block_number,
             number_of_blocks,
         )
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -162,7 +186,7 @@ class RT11File(AbstractFile):
             or block_number + number_of_blocks > self.entry.length
         ):
             raise OSError(errno.EIO, os.strerror(errno.EIO))
-        self.entry.segment.fs.write_block(
+        self.entry.segment.partition.write_block(
             buffer,
             self.entry.file_position + block_number,
             number_of_blocks,
@@ -231,6 +255,7 @@ class RT11DirectoryEntry(AbstractDirectoryEntry):
 
     def to_bytes(self) -> bytes:
         out = bytearray()
+        assert self.length >= 0, "Length must be non-negative"
         out.append(self.type)
         out.append(self.clazz)
         out.extend(asc2rad(self.filename[0:3]))
@@ -365,17 +390,17 @@ class RT11Segment(object):
     # Directory entries
     entries_list: t.List["RT11DirectoryEntry"] = []
 
-    def __init__(self, fs: "RT11Filesystem"):
-        self.fs = fs
+    def __init__(self, partition: "RT11Partition"):
+        self.partition = partition
 
     @classmethod
-    def read(cls, fs: "RT11Filesystem", block_number: int) -> "RT11Segment":
+    def read(cls, partition: "RT11Partition", block_number: int) -> "RT11Segment":
         """
         Read a Volume Directory Segment from disk
         """
-        self = cls(fs)
+        self = cls(partition)
         self.block_number = block_number
-        t = self.fs.read_block(self.block_number, 2)
+        t = self.partition.read_block(self.block_number, 2)
         self.num_of_segments = bytes_to_word(t, 0)
         self.next_logical_dir_segment = bytes_to_word(t, 2)
         self.highest_segment = bytes_to_word(t, 4)
@@ -403,10 +428,11 @@ class RT11Segment(object):
         out.extend(word_to_bytes(self.data_block_number))
         for entry in self.entries_list:
             out.extend(entry.to_bytes())
-        return out + (b"\0" * (BLOCK_SIZE * 2 - len(out)))
+        out.extend(b"\0" * (BLOCK_SIZE * 2 - len(out)))
+        return bytes(out)
 
     def write(self) -> None:
-        self.fs.write_block(self.to_bytes(), self.block_number, 2)
+        self.partition.write_block(self.to_bytes(), self.block_number, 2)
 
     @property
     def next_block_number(self) -> int:
@@ -414,7 +440,7 @@ class RT11Segment(object):
         if self.next_logical_dir_segment == 0:
             return 0
         else:
-            return (self.next_logical_dir_segment - 1) * 2 + self.fs.dir_segment
+            return (self.next_logical_dir_segment - 1) * 2 + self.partition.dir_segment
 
     def compact(self) -> None:
         """Compact multiple unused entries"""
@@ -449,12 +475,12 @@ class RT11Segment(object):
     def __str__(self) -> str:
         buf = io.StringIO()
         buf.write("\n*Segment\n")
-        buf.write(f"Block number:          {self.block_number}\n")
-        buf.write(f"Next dir segment:      {self.next_block_number}\n")
-        buf.write(f"Number of segments:    {self.num_of_segments}\n")
-        buf.write(f"Highest segment:       {self.highest_segment}\n")
-        buf.write(f"Max entries:           {self.max_entries}\n")
-        buf.write(f"Data block:            {self.data_block_number}\n")
+        buf.write(f"Block number:               {self.block_number}\n")
+        buf.write(f"Next dir segment:           {self.next_block_number}\n")
+        buf.write(f"Number of segments:         {self.num_of_segments}\n")
+        buf.write(f"Highest segment:            {self.highest_segment}\n")
+        buf.write(f"Max entries:                {self.max_entries}\n")
+        buf.write(f"Data block:                 {self.data_block_number}\n")
         buf.write("\nNum  File        Date       Length  Type Class Job Chn  Block")
         buf.write("\n---  ----        ----       ------  ---- ----- --- ---  -----\n")
         for i, x in enumerate(self.entries_list):
@@ -462,35 +488,49 @@ class RT11Segment(object):
         return buf.getvalue()
 
 
-class RT11Filesystem(AbstractRXBlockFilesystem):
+class RT11Partition:
     """
-    RT-11 Filesystem
+    RT–11 allows a block number up to 16 bits (65535) long.
+    To utile largest disks, RT–11 uses disk partitioning and
+    divides the disk into logical partitions of 65,535 blocks each.
     """
 
-    fs_name = "rt11"
-    fs_description = "PDP-11 RT-11"
-    fs_platforms = ["pdp11"]
+    fs: "RT11Filesystem"
+    partition_number: int  # Partition number
+    partition_size: int  # Partition size
+    base_block_number: int  # Block number of the first block of this partition
+    dir_segment: int = DEFAULT_DIR_SEGMENT  # First directory segment block
+    ver: str = ""  # System version
+    id: str = ""  # Volume Identification
+    owner: str = ""  # Owner name
+    sys_id: str = ""  # System Identification
 
-    # First directory segment block
-    dir_segment: int = DEFAULT_DIR_SEGMENT
-    # System version
-    ver: str = ""
-    # Volume Identification
-    id: str = ""
-    # Owner name
-    owner: str = ""
-    # System Identification
-    sys_id: str = ""
+    def __init__(self, fs: "RT11Filesystem", partition_number: int, partition_size: int):
+        self.fs = fs
+        self.partition_number = partition_number
+        self.partition_size = partition_size
+        self.base_block_number = partition_number * (1 << 16)
 
     @classmethod
-    def mount(
-        cls,
-        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
-        **kwargs: t.Union[bool, str],
-    ) -> "RT11Filesystem":
-        self = cls(file_or_dev)
+    def read(cls, fs: "RT11Filesystem", partition_number: int, partition_size: int) -> "RT11Partition":
+        self = cls(fs, partition_number, partition_size)
         self.read_home()
         return self
+
+    def read_block(
+        self,
+        block_number: int,
+        number_of_blocks: int = 1,
+    ) -> bytes:
+        return self.fs.read_block(block_number + self.base_block_number, number_of_blocks)
+
+    def write_block(
+        self,
+        buffer: t.Union[bytes, bytearray],
+        block_number: int,
+        number_of_blocks: int = 1,
+    ) -> None:
+        self.fs.write_block(buffer, block_number + self.base_block_number, number_of_blocks)
 
     def read_home(self) -> None:
         """Read home block"""
@@ -559,39 +599,6 @@ class RT11Filesystem(AbstractRXBlockFilesystem):
             if entry.fullname == fullname and entry.is_permanent:
                 return entry
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), fullname)
-
-    def read_bytes(self, fullname: str, file_mode: t.Optional[str] = None) -> bytes:  # fullname=filename+ext
-        entry = self.get_file_entry(fullname)
-        return self.read_block(entry.file_position, entry.length)
-
-    def write_bytes(
-        self,
-        fullname: str,
-        content: bytes,
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
-        file_mode: t.Optional[str] = None,
-    ) -> None:
-        number_of_blocks = int(math.ceil(len(content) * 1.0 / BLOCK_SIZE))
-        entry = self.create_file(fullname, number_of_blocks, creation_date, file_type)
-        if not entry:
-            return
-        content = content + (b"\0" * BLOCK_SIZE)
-        self.write_block(content, entry.file_position, entry.length)
-
-    def create_file(
-        self,
-        fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
-    ) -> t.Optional[RT11DirectoryEntry]:
-        fullname = os.path.basename(fullname)
-        try:
-            self.get_file_entry(fullname).delete()
-        except FileNotFoundError:
-            pass
-        return self.allocate_space(fullname, number_of_blocks, creation_date)
 
     def split_segment(self, entry: RT11DirectoryEntry) -> bool:
         # entry is the last entry of the old_segment, new new segment will contain all the entries after that
@@ -681,99 +688,26 @@ class RT11Filesystem(AbstractRXBlockFilesystem):
         entry.segment.write()
         return entry
 
-    def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
-        i = 0
-        files = 0
-        blocks = 0
-        unused = 0
-        for x in self.filter_entries_list(pattern, include_all=True):
-            if (
-                not x.is_empty
-                and not x.is_tentative
-                and not x.is_permanent
-                and not x.is_protected_permanent
-                and not x.is_protected_by_monitor
-            ):
-                continue
-            i = i + 1
-            if x.is_empty or x.is_tentative:
-                if options.get("brief"):
-                    continue
-                fullname = "< UNUSED >"
-                date = ""
-                unused = unused + x.length
-            else:
-                fullname = x.is_empty and x.filename or "%-6s.%-3s" % (x.filename, x.extension)
-                if options.get("brief"):
-                    # Lists only file names and file types
-                    sys.stdout.write(f"{fullname}\n")
-                    continue
-                date = x.creation_date and x.creation_date.strftime("%d-%b-%y") or ""
-            if x.is_permanent:
-                files = files + 1
-                blocks = blocks + x.length
-            if x.is_protected_permanent:
-                attr = "P"
-            elif x.is_protected_by_monitor:
-                attr = "A"
-            else:
-                attr = " "
-            sys.stdout.write("%10s %5d%1s %9s" % (fullname, x.length, attr, date))
-            # sys.stdout.write(" %8d " % (x.file_position))
-            if i % 2 == 1:
-                sys.stdout.write("    ")
-            else:
-                sys.stdout.write("\n")
-        if options.get("brief"):
-            return
-        if i % 2 == 1:
-            sys.stdout.write("\n")
-        sys.stdout.write(" %d Files, %d Blocks\n" % (files, blocks))
-        sys.stdout.write(" %d Free blocks\n" % unused)
-
-    def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
-        if arg:
-            self.dump(arg)
-        else:
-            sys.stdout.write(f"Directory segment:     {self.dir_segment}\n")
-            sys.stdout.write(f"System version:        {self.ver}\n")
-            sys.stdout.write(f"Volume identification: {self.id}\n")
-            sys.stdout.write(f"Owner name:            {self.owner}\n")
-            sys.stdout.write(f"System identification: {self.sys_id}\n")
-            for segment in self.read_dir_segments():
-                sys.stdout.write(f"{segment}\n")
-
-    def get_size(self) -> int:
-        """
-        Get filesystem size in bytes
-        """
-        return self.dev.get_size()
-
     @classmethod
-    def initialize(
-        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
-    ) -> "RT11Filesystem":
-        """Write an RT–11 empty device directory"""
-        self = cls(file_or_dev)
-        size = self.dev.get_size()
-        # Adjust the size for RX01/RX02 (skip track 0)
-        if size == RX01_SIZE:
-            size = size - RX_SECTOR_TRACK * RX01_SECTOR_SIZE
-        elif size == RX02_SIZE:
-            size = size - RX_SECTOR_TRACK * RX02_SECTOR_SIZE
-        length = size // BLOCK_SIZE
+    def create(
+        cls, fs: "RT11Filesystem", partition_number: int, partition_size: int, **kwargs: t.Union[bool, str]
+    ) -> "RT11Partition":
+        """
+        Initialize the RT-11 partition
+        """
+        self = cls(fs, partition_number, partition_size)
         # Determinate the number of directory segments
-        if length >= 18000:  # 9Mb
+        if partition_size >= 18000:  # 9Mb
             # DW (RD51) 10Mb
             # DL (RL02) 10.4M
             # DM (RK06) 13.8M
             num_of_segments = 31
-        elif length >= 4000:  # 2Mb
+        elif partition_size >= 4000:  # 2Mb
             # RK (RK05) 2.45M
             # DW (RD50) 5Mb
             # DL (RL01) 5.2M
             num_of_segments = 16
-        elif length >= 800:  # 400Kb
+        elif partition_size >= 800:  # 400Kb
             # DZ (RX50) 400K
             # DY (RX02) 512K
             num_of_segments = 4
@@ -798,15 +732,262 @@ class RT11Filesystem(AbstractRXBlockFilesystem):
         # first entry
         dir_entry = RT11DirectoryEntry(segment)
         dir_entry.file_position = segment.data_block_number
-        dir_entry.length = length - dir_entry.file_position
+        dir_entry.length = partition_size - dir_entry.file_position
         dir_entry.clazz = 2
         dir_entry.filename = "EMPTY"
         dir_entry.extension = "FIL"
+        print(">>>>", dir_entry)
         segment.entries_list.append(dir_entry)
         # second entry
         dir_entry = RT11DirectoryEntry(segment)
-        dir_entry.file_position = size
+        dir_entry.file_position = partition_size
         dir_entry.clazz = 8
         segment.entries_list.append(dir_entry)
         segment.write()
         return self
+
+    def examine(self) -> str:
+        buf = io.StringIO()
+        buf.write("\n*Partition\n")
+        buf.write(f"Partition number:           {self.partition_number}\n")
+        buf.write(f"Partition size:             {self.partition_size}\n")
+        buf.write(f"Partition starting block:   {self.base_block_number}\n")
+        buf.write(f"Directory segment:          {self.dir_segment}\n")
+        buf.write(f"System version:             {self.ver}\n")
+        buf.write(f"Volume identification:      {self.id}\n")
+        buf.write(f"Owner name:                 {self.owner}\n")
+        buf.write(f"System identification:      {self.sys_id}\n")
+        return buf.getvalue()
+
+
+class RT11Filesystem(AbstractRXBlockFilesystem):
+    """
+    RT-11 Filesystem
+    """
+
+    fs_name = "rt11"
+    fs_description = "PDP-11 RT-11"
+    fs_platforms = ["pdp11"]
+
+    partitions: t.List[RT11Partition]  # Disk partitions
+    current_partition: int  # Current partition
+    number_of_blocks: int  # Number of blocks
+
+    @classmethod
+    def mount(
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        **kwargs: t.Union[bool, str],
+    ) -> "RT11Filesystem":
+        self = cls(file_or_dev)
+        self.current_partition = 0
+        self.number_of_blocks = self.dev.get_size() // BLOCK_SIZE
+        # Calculate the number of partitions and their sizes
+        self.partitions = [
+            RT11Partition.read(self, i, size) for (i, size) in enumerate(self.calculate_partition_sizes())
+        ]
+        return self
+
+    def calculate_partition_sizes(self) -> t.List[int]:
+        """
+        Calculate the partition sizes based on the device size
+        """
+        partition_sizes = []
+        tmp = self.number_of_blocks
+        while tmp > 0:
+            if tmp >= 1 << 16:
+                partition_sizes.append(MAX_PARTITION_SIZE)
+                tmp = tmp - (1 << 16)
+            else:
+                partition_sizes.append(tmp)
+                tmp = 0
+        return partition_sizes
+
+    def get_partition(self, partition_number: int) -> RT11Partition:
+        """
+        Get a partition by number
+        """
+        try:
+            return self.partitions[partition_number]
+        except Exception:
+            raise FileNotFoundError(errno.ENOENT, "Partition not found", partition_number)
+
+    def filter_entries_list(
+        self,
+        pattern: t.Optional[str],
+        include_all: bool = False,
+        expand: bool = True,
+        wildcard: bool = True,
+    ) -> t.Iterator["RT11DirectoryEntry"]:
+        partition = self.current_partition
+        if pattern:
+            partition, pattern = rt11_split_fullname(partition, pattern, wildcard)
+        for segment in self.get_partition(partition).read_dir_segments():
+            for entry in segment.entries_list:
+                if filename_match(entry.basename, pattern, wildcard):
+                    if not include_all and (entry.is_empty or entry.is_tentative or entry.is_end_of_segment):
+                        continue
+                    yield entry
+
+    @property
+    def entries_list(self) -> t.Iterator["RT11DirectoryEntry"]:
+        for segment in self.get_partition(self.current_partition).read_dir_segments():
+            for entry in segment.entries_list:
+                yield entry
+
+    def get_file_entry(self, fullname: str) -> RT11DirectoryEntry:  # fullname=filename+ext
+        partition = self.current_partition
+        if fullname:
+            partition, fullname = rt11_split_fullname(partition, fullname, wildcard=False)  # type: ignore
+        for segment in self.get_partition(partition).read_dir_segments():
+            for entry in segment.entries_list:
+                if entry.fullname == fullname and entry.is_permanent:
+                    return entry
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), fullname)
+
+    def write_bytes(
+        self,
+        fullname: str,
+        content: t.Union[bytes, bytearray],
+        creation_date: t.Optional[date] = None,
+        file_type: t.Optional[str] = None,
+        file_mode: t.Optional[str] = None,
+    ) -> None:
+        number_of_blocks = int(math.ceil(len(content) * 1.0 / BLOCK_SIZE))
+        entry = self.create_file(fullname, number_of_blocks, creation_date, file_type)
+        # TODO open file
+        if not entry:
+            return
+        content = content + (b"\0" * BLOCK_SIZE)
+        self.write_block(content, entry.file_position, entry.length)
+
+    def create_file(
+        self,
+        fullname: str,
+        number_of_blocks: int,  # length in blocks
+        creation_date: t.Optional[date] = None,  # optional creation date
+        file_type: t.Optional[str] = None,
+    ) -> RT11DirectoryEntry:
+        partition, fullname = rt11_split_fullname(self.current_partition, fullname, wildcard=False)  # type: ignore
+        part = self.get_partition(partition)
+        try:
+            part.get_file_entry(fullname).delete()
+        except FileNotFoundError:
+            pass
+        return part.allocate_space(fullname, number_of_blocks, creation_date)
+
+    def chdir(self, fullname: str) -> bool:
+        try:
+            partition = int(fullname)
+        except:
+            return False
+        if partition < 0 or partition >= len(self.partitions):
+            return False
+        self.current_partition = int(fullname)
+        return True
+
+    def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
+        i = 0
+        files = 0
+        blocks = 0
+        unused = 0
+        partition = self.current_partition
+        if pattern:
+            partition, pattern = rt11_split_fullname(partition, pattern, wildcard=True)
+        part = self.get_partition(partition)
+        for segment in part.read_dir_segments():
+            for x in segment.entries_list:
+                if x.is_empty or x.is_tentative:
+                    unused = unused + x.length
+                if not filename_match(x.basename, pattern, wildcard=True):
+                    continue
+                if (
+                    not x.is_empty
+                    and not x.is_tentative
+                    and not x.is_permanent
+                    and not x.is_protected_permanent
+                    and not x.is_protected_by_monitor
+                ):
+                    continue
+                i = i + 1
+                if x.is_empty or x.is_tentative:
+                    if options.get("brief"):
+                        continue
+                    fullname = "< UNUSED >"
+                    dt = ""
+                else:
+                    fullname = x.is_empty and x.filename or "%-6s.%-3s" % (x.filename, x.extension)
+                    if options.get("brief"):
+                        # Lists only file names and file types
+                        sys.stdout.write(f"{fullname}\n")
+                        continue
+                    dt = x.creation_date and x.creation_date.strftime("%d-%b-%y") or ""
+                if x.is_permanent:
+                    files = files + 1
+                    blocks = blocks + x.length
+                if x.is_protected_permanent:
+                    attr = "P"
+                elif x.is_protected_by_monitor:
+                    attr = "A"
+                else:
+                    attr = " "
+                sys.stdout.write(f"{fullname:10} {x.length:5}{attr:1} {dt:9}")
+                if i % 2 == 1:
+                    sys.stdout.write("    ")
+                else:
+                    sys.stdout.write("\n")
+        if options.get("brief"):
+            return
+        if i % 2 == 1:
+            sys.stdout.write("\n")
+        sys.stdout.write(f" {files} Files, {blocks} Blocks\n")
+        sys.stdout.write(f" {unused} Free blocks\n")
+
+    def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
+        if arg:
+            self.dump(arg)
+        else:
+            sys.stdout.write(f"Number of partitions:       {len(self.partitions)}\n")
+            for partition in self.partitions:
+                sys.stdout.write(partition.examine())
+                for segment in partition.read_dir_segments():
+                    sys.stdout.write(f"{segment}\n")
+
+    def get_size(self) -> int:
+        """
+        Get filesystem size in bytes
+        """
+        return self.dev.get_size()
+
+    @classmethod
+    def initialize(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "RT11Filesystem":
+        """
+        Write an RT–11 empty device directory
+        """
+        self = cls(file_or_dev)
+        size = self.dev.get_size()
+        if size == RX01_SIZE:
+            # Adjust the size for RX01 (skip track 0)
+            size = size - RX_SECTOR_TRACK * RX01_SECTOR_SIZE
+            self.number_of_blocks = size // BLOCK_SIZE
+            self.partitions = [RT11Partition.create(self, 0, self.number_of_blocks)]
+        elif size == RX02_SIZE:
+            # Adjust the size for RX02 (skip track 0)
+            size = size - RX_SECTOR_TRACK * RX02_SECTOR_SIZE
+            self.number_of_blocks = size // BLOCK_SIZE
+            self.partitions = [RT11Partition.create(self, 0, self.number_of_blocks)]
+        else:
+            self.number_of_blocks = size // BLOCK_SIZE
+            self.partitions = [
+                RT11Partition.create(self, i, size) for (i, size) in enumerate(self.calculate_partition_sizes())
+            ]
+        self.current_partition = 0
+        return self
+
+    def get_pwd(self) -> str:
+        if self.current_partition == 0:
+            return ""
+        else:
+            return f"[{self.current_partition}]"

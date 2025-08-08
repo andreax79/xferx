@@ -209,7 +209,7 @@ class DECSysFile(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -1017,7 +1017,7 @@ class DECSysFilesystem(AbstractFilesystem):
         number_of_blocks: int,  # length in blocks
         creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,
-    ) -> t.Optional[DECSysDirectoryEntry]:
+    ) -> DECSysDirectoryEntry:
         """
         Create a new file with a given length in number of blocks
         """
@@ -1052,7 +1052,7 @@ class DECSysFilesystem(AbstractFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,
@@ -1060,9 +1060,8 @@ class DECSysFilesystem(AbstractFilesystem):
         words = str_to_fiodec(content.decode('ascii'))
         number_of_blocks = int(math.ceil(len(content) / LINKED_FILE_WORDS_PER_BLOCK))
         entry = self.create_file(fullname, number_of_blocks, creation_date, file_type)
-        if entry is not None:
-            with entry.open(file_type) as f:
-                f.write_words_block(words, block_number=0, number_of_blocks=number_of_blocks)
+        with entry.open(file_type) as f:
+            f.write_words_block(words, block_number=0, number_of_blocks=number_of_blocks)
 
     def isdir(self, fullname: str) -> bool:
         return False

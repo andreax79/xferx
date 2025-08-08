@@ -20,6 +20,7 @@
 
 import errno
 import os
+import typing as t
 from dataclasses import dataclass
 
 from ..abstract import AbstractFile
@@ -121,7 +122,7 @@ class AppleDisk(BlockDevice):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -156,7 +157,7 @@ class AppleDisk(BlockDevice):
         self.f.seek(position)
         return self.f.read(SECTOR_SIZE)
 
-    def write_sector(self, buffer: bytes, address: TrackSector) -> None:
+    def write_sector(self, buffer: t.Union[bytes, bytearray], address: TrackSector) -> None:
         sector = address.sector
         if self.prodos_order:
             sector = DOS_SECTOR_ORDER[sector % len(DOS_SECTOR_ORDER)]

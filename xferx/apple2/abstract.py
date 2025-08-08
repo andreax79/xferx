@@ -47,5 +47,5 @@ class AbstractAppleDiskFilesystem(AbstractBlockFilesystem):
     def read_sector(self, address: TrackSector) -> bytes:
         return self.dev.read_sector(address)
 
-    def write_sector(self, buffer: bytes, address: TrackSector) -> None:
+    def write_sector(self, buffer: t.Union[bytes, bytearray], address: TrackSector) -> None:
         self.dev.write_sector(buffer, address)

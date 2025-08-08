@@ -221,7 +221,7 @@ class UNIX0File(UNIXFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -943,7 +943,7 @@ class UNIX0Filesystem(UNIXFilesystem):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -1018,7 +1018,7 @@ class UNIX0Filesystem(UNIXFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,

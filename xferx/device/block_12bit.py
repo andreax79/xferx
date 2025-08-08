@@ -91,7 +91,7 @@ class BlockDevice12Bit(BlockDevice):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -130,7 +130,7 @@ class DECtape12Bit(BlockDevice12Bit):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -159,7 +159,7 @@ class RXBlockDevice12Bit(BlockDevice12Bit):
         self.f.seek(position)
         return self.f.read(self.sector_size)
 
-    def write_sector(self, buffer: bytes, sector: int) -> None:
+    def write_sector(self, buffer: t.Union[bytes, bytearray], sector: int) -> None:
         """
         Write a sector to the disk image (for COS RX01 floppy)
         """

@@ -394,7 +394,7 @@ class DOS11File(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -1255,7 +1255,7 @@ class DOS11Filesystem(AbstractRXBlockFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,
@@ -1273,9 +1273,8 @@ class DOS11Filesystem(AbstractRXBlockFilesystem):
             file_type=file_type,
             protection_code=protection_code,
         )
-        if entry is not None:
-            with entry.open(file_mode) as f:
-                f.write_block(content, 0, entry.length)
+        with entry.open(file_mode) as f:
+            f.write_block(content, 0, entry.length)
 
     def create_file(
         self,
@@ -1284,7 +1283,7 @@ class DOS11Filesystem(AbstractRXBlockFilesystem):
         creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,
         protection_code: int = DEFAULT_PROTECTION_CODE,
-    ) -> t.Optional[DOS11DirectoryEntry]:
+    ) -> DOS11DirectoryEntry:
         """
         Create a new file with a given length in number of blocks
         """

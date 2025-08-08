@@ -63,7 +63,7 @@ class AbstractFile(ABC):
     @abstractmethod
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -108,7 +108,7 @@ class AbstractFile(ABC):
                 break
         return bytes(data)
 
-    def write(self, data: bytes) -> int:
+    def write(self, data: t.Union[bytes, bytearray]) -> int:
         """Write bytes to the file at the current position"""
         data_length = len(data)
         written = 0
@@ -228,7 +228,11 @@ class AbstractFilesystem:
 
     fs_name: str  # Filesystem name
     fs_description: str  # Filesystem description
-    dev: AbstractDevice
+    fs_platforms: t.List[str] = []  # Filesystem platforms
+
+    dev: AbstractDevice  # Device from which the filesystem is mounted
+    target: t.Optional[str] = None  # Login volume for the mounted filesystem
+    source: t.Optional[str] = None  # Source of the mounted filesystem (e.g., file path)
 
     def __init__(self, dev: "AbstractDevice"):
         self.dev = dev
@@ -267,7 +271,7 @@ class AbstractFilesystem:
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,
@@ -379,6 +383,9 @@ class AbstractFilesystem:
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.__dict__})"
 
+    def __str__(self) -> str:
+        return f"{self.fs_name} ({self.dev})"
+
 
 class AbstractBlockFilesystem(AbstractFilesystem):
     """Abstract base class for block-based filesystems"""
@@ -402,7 +409,7 @@ class AbstractBlockFilesystem(AbstractFilesystem):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:

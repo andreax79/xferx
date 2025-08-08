@@ -236,7 +236,7 @@ class DGDOSDumpFile(AbstractFile):
 
     def write_block(
         self,
-        buffer: bytes,
+        buffer: t.Union[bytes, bytearray],
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
@@ -592,7 +592,7 @@ class DGDOSDumpFilesystem(AbstractFilesystem):
     def write_bytes(
         self,
         fullname: str,
-        content: bytes,
+        content: t.Union[bytes, bytearray],
         creation_date: t.Optional[date] = None,
         file_type: t.Optional[str] = None,
         file_mode: t.Optional[str] = None,
@@ -609,7 +609,7 @@ class DGDOSDumpFilesystem(AbstractFilesystem):
         creation_date: t.Optional[date] = None,  # optional creation date
         file_type: t.Optional[str] = None,
         length_bytes: t.Optional[int] = None,  # optional length in bytes
-    ) -> t.Optional[DGDOSDumpEntry]:
+    ) -> DGDOSDumpEntry:
         """
         Create a new file with a given length in number of blocks
         """
