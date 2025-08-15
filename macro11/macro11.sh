@@ -38,14 +38,14 @@ function generate_startup_file() {
 
 # Copy the startup file to the boot disk
 function copy_startup_file() {
-    ../rt11.py -c "mount ${BOOT_VOL} ${BOOT_DISK}" -c "copy STARTA.COM ${BOOT_VOL}"
+    ../xferx.py -c "mount ${BOOT_VOL} ${BOOT_DISK}" -c "copy STARTA.COM ${BOOT_VOL}"
 }
 
 # Prepare the work disk
 function prepare_work_disk() {
     echo "Creating work disk ${WORK_DISK}"
     dd bs=${WORK_DISK_SIZE} count=1 if=/dev/zero of=${WORK_DISK}
-    ../rt11.py -v \
+    ../xferx.py -v \
         -c "mount vol: ${WORK_DISK}" \
         -c "initialize vol:" \
         -c "copy ${SOURCE} vol:${BASENAME}"
@@ -59,7 +59,7 @@ function prepare_boot_disk() {
         tar xzf rtv53swre.tar.Z
         rm rtv53swre.tar.Z
     fi
-    ../rt11.py -c "mount ${BOOT_VOL} ${BOOT_DISK}" -c "copy HALT.SAV ${BOOT_VOL}"
+    ../xferx.py -c "mount ${BOOT_VOL} ${BOOT_DISK}" -c "copy HALT.SAV ${BOOT_VOL}"
 }
 
 # Start pdp11 emulator
@@ -71,7 +71,7 @@ function run_macro11() {
 # Copy the output files to the out directory
 function copy_output() {
     mkdir -p ${OUT}
-    ../rt11.py -v \
+    ../xferx.py -v \
         -c "mount vol: ${WORK_DISK}" \
         -c "copy vol:*.* ${OUT}"
 }

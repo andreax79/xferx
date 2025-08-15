@@ -37,3 +37,4 @@ References
 * [DOS-15 System Manual](https://bitsavers.org/pdf/dec/pdp15/DEC-15-ODFFA-A_DOS15_SysMan.pdf)
 * [PDP-15 Utility Programs](https://bitsavers.org/pdf/dec/pdp15/DEC-15-YWZA-D_PDP-15_Utility_Programs_196910.pdf)
 * [PIP DOS Monitor Utility Program](https://bitsavers.org/pdf/dec/pdp15/DEC-15-UPIPA-A-D_PIP_DOS_Monitor_Utility_Program_197408.pdf)
+* [PDP-15 System Software Handouts](https://bitsavers.org/pdf/dec/pdp15/PDP-15_System_Software_Handouts_1975.pdf)

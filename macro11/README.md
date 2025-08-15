@@ -22,15 +22,15 @@ The script will assemble and link the source file, producing an output SAV file.
 $ ./macro11/macro11.sh mac/hello.mac
 
 ?MOUNT-I-Disk Disks/rtv53_rl.dsk mounted to DL0:
-DK:/home/andreax/devel/python-rt11/macro11/STARTA.COM -> DL0:/home/andreax/devel/python-rt11/macro11/STARTA.COM
+DK:/home/andreax/devel/xferx/macro11/STARTA.COM -> DL0:/home/andreax/devel/xferx/macro11/STARTA.COM
 Creating work disk work.dsk
 1+0 records in
 1+0 records out
 2494464 bytes (2.5 MB, 2.4 MiB) copied, 0.00595551 s, 419 MB/s
 ?MOUNT-I-Disk work.dsk mounted to VOL:
-DK:/home/andreax/devel/python-rt11/mac/hello.mac -> VOL:hello.mac
+DK:/home/andreax/devel/xferx/mac/hello.mac -> VOL:hello.mac
 ?MOUNT-I-Disk Disks/rtv53_rl.dsk mounted to DL0:
-DK:/home/andreax/devel/python-rt11/macro11/HALT.SAV -> DL0:/home/andreax/devel/python-rt11/macro11/HALT.SAV
+DK:/home/andreax/devel/xferx/macro11/HALT.SAV -> DL0:/home/andreax/devel/xferx/macro11/HALT.SAV
 Starting pdp11
 .MACRO hello/LIST
 .LINK hello/MAP
@@ -50,11 +50,11 @@ Disabling XQ
 HALT instruction, PC: 001002 (HALT)
 Goodbye
 ?MOUNT-I-Disk work.dsk mounted to VOL:
-VOL:HELLO.MAC -> DK:/home/andreax/devel/python-rt11/out/HELLO.MAC
-VOL:HELLO.OBJ -> DK:/home/andreax/devel/python-rt11/out/HELLO.OBJ
-VOL:HELLO.SAV -> DK:/home/andreax/devel/python-rt11/out/HELLO.SAV
-VOL:HELLO.LST -> DK:/home/andreax/devel/python-rt11/out/HELLO.LST
-VOL:HELLO.MAP -> DK:/home/andreax/devel/python-rt11/out/HELLO.MAP
+VOL:HELLO.MAC -> DK:/home/andreax/devel/xferx/out/HELLO.MAC
+VOL:HELLO.OBJ -> DK:/home/andreax/devel/xferx/out/HELLO.OBJ
+VOL:HELLO.SAV -> DK:/home/andreax/devel/xferx/out/HELLO.SAV
+VOL:HELLO.LST -> DK:/home/andreax/devel/xferx/out/HELLO.LST
+VOL:HELLO.MAP -> DK:/home/andreax/devel/xferx/out/HELLO.MAP
 ?MOUNT-I-Disk Disks/rtv53_rl.dsk mounted to DL0:
-DK:/home/andreax/devel/python-rt11/macro11/STARTA.COM -> DL0:/home/andreax/devel/python-rt11/macro11/STARTA.COM
+DK:/home/andreax/devel/xferx/macro11/STARTA.COM -> DL0:/home/andreax/devel/xferx/macro11/STARTA.COM
 ```

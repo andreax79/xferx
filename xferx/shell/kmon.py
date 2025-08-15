@@ -26,8 +26,9 @@ import typing as t
 
 from ..commons import splitdrive
 from ..volumes import Volumes
+from .batch import BatchContext
 from .cmds import cmds
-from .commons import CommandError, add_slash, split_command_line
+from .commons import CommandError, ShellContext, add_slash, split_command_line
 
 try:
     import readline
@@ -202,7 +203,7 @@ class Shell:
             # Restore the old completer
             self.teardown_completer()
 
-    def onecmd(self, line: str, catch_exceptions: bool = True, batch: bool = False) -> None:
+    def onecmd(self, line: str, batch: bool = False, context: t.Optional[ShellContext] = None) -> None:
         """
         Execute a single command line
         """
@@ -219,8 +220,11 @@ class Shell:
                 func = cmds.get(cmd)
                 if func is None:
                     raise CommandError("?KMON-F-Illegal command")
+                if context is None:
+                    context = ShellContext(self)
+                assert isinstance(context, ShellContext)
                 args = shlex.split(arg) if arg else []
-                func(self, args)
+                func(context, args)
         except KeyboardInterrupt:
             sys.stdout.write("\n")
             sys.stdout.write("\n")
@@ -228,8 +232,6 @@ class Shell:
             # Allow SystemExit to propagate
             raise ex
         except Exception as ex:
-            if not catch_exceptions:
-                raise ex
             message = str(sys.exc_info()[1])
             sys.stdout.write(f"{message}\n")
             if self.verbose and not isinstance(ex, CommandError):

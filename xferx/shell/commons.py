@@ -25,13 +25,15 @@ import typing as t
 from ..abstract import AbstractDirectoryEntry, AbstractFilesystem
 
 if t.TYPE_CHECKING:
-    from ..shell import Shell
+    from ..volumes import Volumes
+    from .kmon import Shell
 
 __all__ = [
     "CommandError",
     "Commands",
     "PartialMatching",
     "ShellCommand",
+    "ShellContext",
     "add_slash",
     "ask",
     "copy_file",
@@ -203,7 +205,18 @@ class PartialMatching:
         return matching_keys[0][0]
 
 
-ShellCommand = t.Callable[["Shell", t.List[str]], None]
+class ShellContext:
+    shell: "Shell"
+    volumes: "Volumes"
+    verbose: bool
+
+    def __init__(self, shell: "Shell") -> None:
+        self.shell = shell
+        self.volumes = shell.volumes
+        self.verbose = shell.verbose
+
+
+ShellCommand = t.Callable[["ShellContext", t.List[str]], None]
 
 
 class Commands:
@@ -215,7 +228,9 @@ class Commands:
         self.commands = {}
         self.cmd_matching = PartialMatching()
 
-    def register(self, decorator_arg: str, aliases: t.List[str] = []) -> t.Callable[[ShellCommand], ShellCommand]:
+    def register(
+        self, decorator_arg: str, aliases: t.List[str] = [], batch: bool = False
+    ) -> t.Callable[[ShellCommand], ShellCommand]:
         """
         Register a command function with the shell
         """

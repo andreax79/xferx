@@ -55,6 +55,7 @@ __all__ = [
 
 HOMEBLK = 1
 DEFAULT_DIR_SEGMENT = 6
+DEFAULT_PACK_CLUSTER_SIZE = 1
 DIR_ENTRY_SIZE = 14
 DIRECTORY_SEGMENT_HEADER_SIZE = 10
 DIRECTORY_SEGMENT_SIZE = BLOCK_SIZE * 2
@@ -499,6 +500,7 @@ class RT11Partition:
     partition_number: int  # Partition number
     partition_size: int  # Partition size
     base_block_number: int  # Block number of the first block of this partition
+    pack_cluster_size: int = DEFAULT_PACK_CLUSTER_SIZE  # Pack cluster size
     dir_segment: int = DEFAULT_DIR_SEGMENT  # First directory segment block
     ver: str = ""  # System version
     id: str = ""  # Volume Identification
@@ -534,17 +536,19 @@ class RT11Partition:
 
     def read_home(self) -> None:
         """Read home block"""
-        t = self.read_block(HOMEBLK)
-        self.dir_segment = bytes_to_word(t[468:470]) or DEFAULT_DIR_SEGMENT
-        self.ver = rad2asc(t[470:472])
-        self.id = t[472:484].decode("ascii", "replace").replace("�", "?")
-        self.owner = t[484:496].decode("ascii", "replace").replace("�", "?")
-        self.sys_id = t[496:508].decode("ascii", "replace").replace("�", "?")
-        self.checksum = bytes_to_word(t[510:512])
+        tmp = self.read_block(HOMEBLK)
+        self.pack_cluster_size = bytes_to_word(tmp[466:468]) or DEFAULT_PACK_CLUSTER_SIZE
+        self.dir_segment = bytes_to_word(tmp[468:470]) or DEFAULT_DIR_SEGMENT
+        self.ver = rad2asc(tmp[470:472])
+        self.id = tmp[472:484].decode("ascii", "replace").replace("�", "?")
+        self.owner = tmp[484:496].decode("ascii", "replace").replace("�", "?")
+        self.sys_id = tmp[496:508].decode("ascii", "replace").replace("�", "?")
+        self.checksum = bytes_to_word(tmp[510:512])
 
     def write_home(self) -> None:
         """Write home block"""
         # Convert data to bytes
+        pack_cluster_size_bytes = word_to_bytes(self.pack_cluster_size)
         dir_segment_bytes = word_to_bytes(self.dir_segment)
         ver_bytes = asc2rad(self.ver)
         id_bytes = self.id.encode("ascii")
@@ -554,6 +558,7 @@ class RT11Partition:
         # Create a byte array for the home block
         home_block = bytearray([0] * BLOCK_SIZE)
         # Fill the byte array with the data
+        home_block[466:468] = pack_cluster_size_bytes
         home_block[468:470] = dir_segment_bytes
         home_block[470:472] = ver_bytes
         home_block[472:484] = id_bytes.ljust(12, b'\0')  # Pad with null bytes if needed
@@ -715,6 +720,7 @@ class RT11Partition:
             # DX (RX01) 256K
             num_of_segments = 1
         # Write the home block
+        self.pack_cluster_size = DEFAULT_PACK_CLUSTER_SIZE
         self.dir_segment = DEFAULT_DIR_SEGMENT
         self.ver = "V05"
         self.id = ""
@@ -736,7 +742,6 @@ class RT11Partition:
         dir_entry.clazz = 2
         dir_entry.filename = "EMPTY"
         dir_entry.extension = "FIL"
-        print(">>>>", dir_entry)
         segment.entries_list.append(dir_entry)
         # second entry
         dir_entry = RT11DirectoryEntry(segment)
@@ -752,11 +757,13 @@ class RT11Partition:
         buf.write(f"Partition number:           {self.partition_number}\n")
         buf.write(f"Partition size:             {self.partition_size}\n")
         buf.write(f"Partition starting block:   {self.base_block_number}\n")
+        buf.write(f"Pack cluster size:          {self.pack_cluster_size}\n")
         buf.write(f"Directory segment:          {self.dir_segment}\n")
         buf.write(f"System version:             {self.ver}\n")
         buf.write(f"Volume identification:      {self.id}\n")
         buf.write(f"Owner name:                 {self.owner}\n")
         buf.write(f"System identification:      {self.sys_id}\n")
+        buf.write(f"Checksum:                   {self.checksum:x}\n")
         return buf.getvalue()
 
 

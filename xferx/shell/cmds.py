@@ -29,14 +29,12 @@ from ..volumes import DEFAULT_VOLUME, FILESYSTEMS
 from .commons import (
     CommandError,
     Commands,
+    ShellContext,
     ask,
     copy_file,
     extract_options,
     get_int_option,
 )
-
-if t.TYPE_CHECKING:
-    from ..shell import Shell
 
 __all__ = ["cmds"]
 
@@ -45,7 +43,7 @@ cmds = Commands()
 
 
 @cmds.register("DIR_ECTORY", aliases=["LS"])
-def directory(shell: "Shell", args: t.List[str]) -> None:
+def directory(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 DIR             Lists file directories
@@ -78,12 +76,12 @@ DIR             Lists file directories
     else:
         volume_id = DEFAULT_VOLUME
         pattern = None
-    fs = shell.volumes.get(volume_id, cmd="DIR")
+    fs = context.volumes.get(volume_id, cmd="DIR")
     fs.dir(volume_id, pattern, options)  # type: ignore
 
 
 @cmds.register("TY_PE")
-def type(shell: "Shell", args: t.List[str]) -> None:
+def type(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 TYPE            Outputs files to the terminal
@@ -102,7 +100,7 @@ TYPE            Outputs files to the terminal
     if len(args) > 1:
         raise CommandError("?TYPE-F-Too many arguments")
     volume_id, pattern = splitdrive(args[0])
-    fs = shell.volumes.get(volume_id, cmd="TYPE")
+    fs = context.volumes.get(volume_id, cmd="TYPE")
     match = False
     for entry in fs.filter_entries_list(pattern):
         match = True
@@ -115,7 +113,7 @@ TYPE            Outputs files to the terminal
 
 
 @cmds.register("COP_Y")
-def copy(shell: "Shell", args: t.List[str]) -> None:
+def copy(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 COPY            Copies files
@@ -144,11 +142,11 @@ COPY            Copies files
     if not cfrom:
         cfrom = ask("From? ")
     from_volume_id, cfrom = splitdrive(cfrom)
-    from_fs = shell.volumes.get(from_volume_id, cmd="COPY")
+    from_fs = context.volumes.get(from_volume_id, cmd="COPY")
     if not to:
         to = ask("To? ")
     to_volume_id, to = splitdrive(to)
-    to_fs = shell.volumes.get(to_volume_id, cmd="COPY")
+    to_fs = context.volumes.get(to_volume_id, cmd="COPY")
     from_len = len(list(from_fs.filter_entries_list(cfrom)))
     from_list = from_fs.filter_entries_list(cfrom)
     file_type = options["type"].upper() if isinstance(options.get("type"), str) else None  # type: ignore
@@ -157,7 +155,7 @@ COPY            Copies files
     elif from_len == 1:  # One file to be copied
         source = list(from_list)[0]
         if not to:
-            to_pwd = shell.volumes.get(to_volume_id).get_pwd()
+            to_pwd = context.volumes.get(to_volume_id).get_pwd()
             to_path = os.path.join(to_pwd, source.basename)
         elif to and to_fs.isdir(to):
             to_path = os.path.join(to, source.basename)
@@ -167,10 +165,10 @@ COPY            Copies files
         if not from_entry:
             raise CommandError(f"?COPY-F-Error copying {source.fullname}")
         sys.stdout.write("%s:%s -> %s:%s\n" % (from_volume_id, source.fullname, to_volume_id, to_path))
-        copy_file(from_fs, from_entry, to_fs, to_path, file_type, file_mode, shell.verbose, cmd="COPY")
+        copy_file(from_fs, from_entry, to_fs, to_path, file_type, file_mode, context.verbose, cmd="COPY")
     else:
         if not to:
-            to = shell.volumes.get(to_volume_id).get_pwd()
+            to = context.volumes.get(to_volume_id).get_pwd()
         elif not to_fs.isdir(to):
             raise CommandError("?COPY-F-Target must be a volume or a directory")
         for from_entry in from_fs.filter_entries_list(cfrom):
@@ -179,11 +177,11 @@ COPY            Copies files
             else:
                 to_path = from_entry.basename
             sys.stdout.write("%s:%s -> %s:%s\n" % (from_volume_id, from_entry.fullname, to_volume_id, to_path))
-            copy_file(from_fs, from_entry, to_fs, to_path, file_type, file_mode, shell.verbose, cmd="COPY")
+            copy_file(from_fs, from_entry, to_fs, to_path, file_type, file_mode, context.verbose, cmd="COPY")
 
 
 @cmds.register("DEL_ETE")
-def delete(shell: "Shell", args: t.List[str]) -> None:
+def delete(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 DELETE          Removes files from a volume
@@ -204,7 +202,7 @@ DELETE          Removes files from a volume
         args = shlex.split(line)
     for arg in args:
         volume_id, pattern = splitdrive(arg)
-        fs = shell.volumes.get(volume_id, cmd="DEL")
+        fs = context.volumes.get(volume_id, cmd="DEL")
         match = False
         for x in fs.filter_entries_list(pattern, expand=False):  # don't expand directories
             match = True
@@ -215,7 +213,7 @@ DELETE          Removes files from a volume
 
 
 @cmds.register("E_XAMINE")
-def examine(shell: "Shell", args: t.List[str]) -> None:
+def examine(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 EXAMINE         Examines disk structure
@@ -233,12 +231,12 @@ EXAMINE         Examines disk structure
         args = ask("From? ").split()
     for arg in args:
         volume_id, fullname = splitdrive(arg)
-        fs = shell.volumes.get(volume_id)
+        fs = context.volumes.get(volume_id)
         fs.examine(fullname, options)
 
 
 @cmds.register("DU_MP")
-def dump(shell: "Shell", args: t.List[str]) -> None:
+def dump(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 DUMP            Prints formatted data dumps of files or devices
@@ -269,14 +267,14 @@ DUMP            Prints formatted data dumps of files or devices
     for arg in args:
         try:
             volume_id, fullname = splitdrive(arg)
-            fs = shell.volumes.get(volume_id)
+            fs = context.volumes.get(volume_id)
             fs.dump(fullname, start=start, end=end)
         except FileNotFoundError:
             raise CommandError("?DUMP-F-File not found")
 
 
 @cmds.register("CR_EATE")
-def create(shell: "Shell", args: t.List[str]) -> None:
+def create(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 CREATE          Creates files or directories
@@ -317,7 +315,7 @@ CREATE          Creates files or directories
     if not path:
         path = ask("File? ")
     volume_id, fullname = splitdrive(path)
-    fs = shell.volumes.get(volume_id, cmd="CREATE")
+    fs = context.volumes.get(volume_id, cmd="CREATE")
     if kind == "directory":
         # Create a directory
         fs.create_directory(fullname, options)
@@ -340,7 +338,7 @@ CREATE          Creates files or directories
 
 
 @cmds.register("MO_UNT")
-def mount(shell: "Shell", args: t.List[str]) -> None:
+def mount(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 MOUNT           Assigns a logical disk unit to a file
@@ -384,11 +382,11 @@ MOUNT           Assigns a logical disk unit to a file
         if options.get(filesystem):
             fstype = filesystem
             break
-    shell.volumes.mount(path, logical, fstype=fstype, verbose=shell.verbose, device_type=device_type)
+    context.volumes.mount(path, logical, fstype=fstype, verbose=context.verbose, device_type=device_type)
 
 
 @cmds.register("DIS_MOUNT")
-def dismount(shell: "Shell", args: t.List[str]) -> None:
+def dismount(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 DISMOUNT        Disassociates a logical disk assignment from a file
@@ -411,11 +409,11 @@ DISMOUNT        Disassociates a logical disk assignment from a file
         logical = args[0]
     else:
         logical = ask("Volume? ")
-    shell.volumes.dismount(logical)
+    context.volumes.dismount(logical)
 
 
 @cmds.register("AS_SIGN")
-def assign(shell: "Shell", args: t.List[str]) -> None:
+def assign(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 ASSIGN          Associates a logical device name with a device
@@ -441,11 +439,11 @@ ASSIGN          Associates a logical device name with a device
         volume_id = ask("Device name? ")
     if not logical:
         logical = ask("Logical name? ")
-    shell.volumes.assign(volume_id, logical, verbose=shell.verbose)
+    context.volumes.assign(volume_id, logical, verbose=context.verbose)
 
 
 @cmds.register("DEA_SSIGN")
-def deassign(shell: "Shell", args: t.List[str]) -> None:
+def deassign(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 DEASSIGN        Removes logical device name assignments
@@ -467,11 +465,11 @@ DEASSIGN        Removes logical device name assignments
         logical = args[0]
     else:
         logical = ask("Volume? ")
-    shell.volumes.deassign(logical, cmd="DEASSIGN")
+    context.volumes.deassign(logical, cmd="DEASSIGN")
 
 
 @cmds.register("INI_TIALIZE")
-def initialize(shell: "Shell", args: t.List[str]) -> None:
+def initialize(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 INITIALIZE      Writes an empty device directory on the specified volume
@@ -507,7 +505,7 @@ INITIALIZE      Writes an empty device directory on the specified volume
             options["device_type"] = options["dev"].lower()  # type: ignore
         except Exception:
             pass
-        fs = shell.volumes.get(target)
+        fs = context.volumes.get(target)
         fs.initialize(fs.dev, **options)
     else:
         filesystem_cls = None
@@ -518,12 +516,12 @@ INITIALIZE      Writes an empty device directory on the specified volume
         if filesystem_cls is None:
             raise CommandError("?INITIALIZE-F-Filesystem not specified")
         parent_volume_id, target_path = splitdrive(target)
-        parent_fs = shell.volumes.get(parent_volume_id)
+        parent_fs = context.volumes.get(parent_volume_id)
         target_file = parent_fs.open_file(target_path)
         try:
             device_type = options["dev"].lower()  # type: ignore
         except Exception:
-            device_type = shell.volumes.guess_device_type(target_path)
+            device_type = context.volumes.guess_device_type(target_path)
         if device_type:
             options["device_type"] = device_type
         fs = filesystem_cls.initialize(target_file, **options)
@@ -531,7 +529,7 @@ INITIALIZE      Writes an empty device directory on the specified volume
 
 
 @cmds.register("CD")
-def cd(shell: "Shell", args: t.List[str]) -> None:
+def cd(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 CD              Changes or displays the current working drive and directory
@@ -544,13 +542,13 @@ CD              Changes or displays the current working drive and directory
     if len(args) > 1:
         raise CommandError("?CD-F-Too many arguments")
     elif len(args) == 0:
-        sys.stdout.write("%s\n" % shell.volumes.get_pwd())
-    elif not shell.volumes.chdir(args[0]):
+        sys.stdout.write("%s\n" % context.volumes.get_pwd())
+    elif not context.volumes.chdir(args[0]):
         raise CommandError("?CD-F-Directory not found")
 
 
 @cmds.register("@", aliases=["BATCH"])
-def batch(shell: "Shell", args: t.List[str]) -> None:
+def batch(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 @               Executes a command file
@@ -568,15 +566,13 @@ def batch(shell: "Shell", args: t.List[str]) -> None:
 
     """
     # fmt: on
+    from .batch import BatchContext
+
     if not args:
         return
     try:
-        volume_id, filespec = splitdrive(args[0])
-        fs = shell.volumes.get(volume_id, cmd="BATCH")
-        for line in fs.read_text(filespec).split("\n"):
-            if line.startswith("!"):
-                continue
-            shell.onecmd(line.strip(), catch_exceptions=False, batch=True)
+        context = BatchContext(context, args[0])
+        context.execute()
     except SystemExit:
         pass
     except FileNotFoundError:
@@ -584,7 +580,7 @@ def batch(shell: "Shell", args: t.List[str]) -> None:
 
 
 @cmds.register("PWD")
-def pwd(shell: "Shell", args: t.List[str]) -> None:
+def pwd(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 PWD             Displays the current working drive and directory
@@ -593,11 +589,11 @@ PWD             Displays the current working drive and directory
         PWD
 
     """
-    sys.stdout.write("%s\n" % shell.volumes.get_pwd())
+    sys.stdout.write("%s\n" % context.volumes.get_pwd())
 
 
 @cmds.register("SH_OW")
-def show(shell: "Shell", args: t.List[str]) -> None:
+def show(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 SHOW            Displays software status
@@ -629,11 +625,11 @@ SHOW            Displays software status
     func = cmds.get(f"SHOW {args[0]}" if args else "SHOW VOLUMES")
     if func is None:
         raise CommandError("?SHOW-F-Illegal command")
-    func(shell, args)
+    func(context, args)
 
 
 @cmds.register("SHOW T_YPES")
-def show_type(shell: "Shell", args: t.List[str]) -> None:
+def show_type(context: "ShellContext", args: t.List[str]) -> None:
     """
     SHOW TYPES        Show the file types of a volume
     """
@@ -642,7 +638,7 @@ def show_type(shell: "Shell", args: t.List[str]) -> None:
         volume_id = ask("Volume? ")
     else:
         volume_id = args[1]
-    fs = shell.volumes.get(volume_id)
+    fs = context.volumes.get(volume_id)
     sys.stdout.write("File Types\n")
     sys.stdout.write("----------\n")
     for item in fs.get_types():
@@ -650,7 +646,7 @@ def show_type(shell: "Shell", args: t.List[str]) -> None:
 
 
 @cmds.register("SHOW F_ILESYSTEMS", aliases=["SHOW FS"])
-def show_filesystems(shell: "Shell", args: t.List[str]) -> None:
+def show_filesystems(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 SHOW FILESYSTEMS  Show the supported filesystems
@@ -663,7 +659,7 @@ SHOW FILESYSTEMS  Show the supported filesystems
 
 
 @cmds.register("SHOW VE_RSION")
-def show_version(shell: "Shell", args: t.List[str]) -> None:
+def show_version(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 SHOW VERSION      Show the version of XFERX
@@ -675,7 +671,7 @@ SHOW VERSION      Show the version of XFERX
 
 
 @cmds.register("SHOW VO_LUMES")
-def show_volumes(shell: "Shell", args: t.List[str]) -> None:
+def show_volumes(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 SHOW VOLUMES      Show the device assignments
@@ -683,16 +679,16 @@ SHOW VOLUMES      Show the device assignments
     # fmt: on
     sys.stdout.write("Volumes\n")
     sys.stdout.write("-------\n")
-    for k, v in shell.volumes.volumes.items():
+    for k, v in context.volumes.volumes.items():
         label = f"{k}:"
         sys.stdout.write(f"{label:<6} {v.fs_name.upper():<10} {v.source}\n")
-    for k, v in shell.volumes.logical.items():  # type: ignore
+    for k, v in context.volumes.logical.items():  # type: ignore
         label = f"{k}:"
         sys.stdout.write(f"{label:<4} = {v}:\n")
 
 
 @cmds.register("EXIT", aliases=["QUIT"])
-def exit(shell: "Shell", args: t.List[str]) -> None:
+def exit(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 EXIT            Exit the shell
@@ -705,7 +701,7 @@ EXIT            Exit the shell
 
 
 @cmds.register("H_ELP")
-def help(shell: "Shell", args: t.List[str]) -> None:
+def help(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 HELP            Displays commands help
@@ -729,7 +725,7 @@ HELP            Displays commands help
 
 
 @cmds.register("SHELL")
-def shell(shell: "Shell", args: t.List[str]) -> None:
+def shell(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 SHELL           Executes a system shell command
@@ -743,7 +739,7 @@ SHELL           Executes a system shell command
 
 
 @cmds.register("ECHO")
-def echo(shell: "Shell", args: t.List[str]) -> None:
+def echo(context: "ShellContext", args: t.List[str]) -> None:
     # fmt: off
     """
 ECHO            Write arguments to the terminal
