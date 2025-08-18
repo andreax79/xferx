@@ -9,7 +9,7 @@ DSK = "tests/dsk/solo.dsk"
 def test_solo_read():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /solo {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, SOLOFilesystem)
 
     shell.onecmd("dir t:[*,*]", batch=True)
@@ -34,7 +34,7 @@ def test_solo_write():
     shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
     shell.onecmd(f"mount in: /solo {DSK}", batch=True)
     shell.onecmd(f"mount ou: /solo {DSK}.mo", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
     assert isinstance(fs, SOLOFilesystem)
 
     d = fs.get_file_entry("50.TXT")
@@ -62,22 +62,22 @@ def test_solo_init_write():
     shell.onecmd(f"mount ou: /solo {DSK}.mo", batch=True)
     shell.onecmd("dir ou:", batch=True)
     shell.onecmd("copy in:*.TXT ou:", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
 
-    x = fs.read_bytes("50.txt")
+    x = shell.volumes.read_bytes("ou:50.txt")
     x = x.rstrip(b"\0")
     assert len(x) == 2200
     for i in range(0, 50):
         assert f"{i:5d} ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890".encode("ascii") in x
 
-    entry = fs.get_file_entry("50.txt")
+    entry = shell.volumes.get_file_entry("ou:50.txt")
     hash_key = entry.hash_key
     assert fs.get_searchlength(hash_key) == 1
 
     # Test init mounted volume
     shell.onecmd("init ou:", batch=True)
     with pytest.raises(Exception):
-        fs.read_bytes("50.txt")
+        shell.volumes.read_bytes("ou:50.txt")
 
 
 def test_dos11_bitmap():
@@ -85,7 +85,7 @@ def test_dos11_bitmap():
     shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
     shell.onecmd(f"mount in: /solo {DSK}", batch=True)
     shell.onecmd(f"mount ou: /solo {DSK}.mo", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
     assert isinstance(fs, SOLOFilesystem)
 
     # Test is_free
@@ -117,7 +117,7 @@ def test_solo_segments():
     shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
     shell.onecmd(f"mount in: /solo {DSK}", batch=True)
     shell.onecmd(f"mount ou: /solo {DSK}.mo", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
     assert isinstance(fs, SOLOFilesystem)
 
     # Get segment entries

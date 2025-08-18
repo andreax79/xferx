@@ -1822,7 +1822,7 @@ class ProDOSFilesystem(AbstractAppleDiskFilesystem):
             # Try ProDOS order
             self.dev.prodos_order = True
             if not self.read_volume_directory_header():
-                raise OSError(errno.EIO, os.strerror(errno.EIO))
+                raise OSError(errno.EIO, "Invalid Volume Directory Header")
         return self
 
     def read_volume_directory_header(self) -> bool:

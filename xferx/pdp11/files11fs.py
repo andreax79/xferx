@@ -553,7 +553,7 @@ class Files11Filesystem(AbstractRXBlockFilesystem):
             # Check the index file
             indexfs = self.read_file_header(INDEXF_SYS)
             if indexfs.fnum != INDEXF_SYS:
-                raise OSError(errno.EIO, os.strerror(errno.EIO))
+                raise OSError(errno.EIO, "Error reading index file")
         return self
 
     def read_home(self) -> None:

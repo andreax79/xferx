@@ -34,7 +34,7 @@ def test_date_round_trip():
 def test_bitmap():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /prodos {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     bitmap = fs.read_bitmap()
     print(f"used: {bitmap.used()} free: {bitmap.free()} total: {fs.total_blocks}")
     u = set()
@@ -54,7 +54,7 @@ def test_bitmap():
 def test_prodos():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /prodos {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, ProDOSFilesystem)
 
     shell.onecmd("dir t:", batch=True)
@@ -92,7 +92,7 @@ def test_prodos_init():
     shell.onecmd("cd /prodos/aaa/bbb", batch=True)
     shell.onecmd("dir", batch=True)
     shell.onecmd("cd /prodos", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
 
     x1 = fs.read_bytes("aaa/bbb/50.txt")
     x1 = x1.rstrip(b"\0")
@@ -136,7 +136,7 @@ def test_types():
     shell.onecmd(f"create {DSK}.mo /allocate:2000", batch=True)
     shell.onecmd(f"init /prodos {DSK}.mo", batch=True)
     shell.onecmd(f"mount ou: /prodos {DSK}.mo", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
     shell.onecmd("create ou:test1 /allocate:1 /type:txt,3000", batch=True)
     test1 = fs.get_file_entry("test1")
     assert test1.storage_type == 0x1
@@ -190,7 +190,7 @@ def test_apple_single():
     shell.onecmd(f"create {DSK}.mo /allocate:2000", batch=True)
     shell.onecmd(f"init /prodos {DSK}.mo", batch=True)
     shell.onecmd(f"mount ou: /prodos {DSK}.mo", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
     shell.onecmd("copy tests/dsk/ciao.apple2 ou:", batch=True)
     test1 = fs.get_file_entry("ciao.apple2")
     assert test1.storage_type == 0x2

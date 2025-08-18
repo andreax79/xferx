@@ -20,7 +20,7 @@ DSK = "tests/dsk/unixv0.dsk"
 def test_unix0_read():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /unix0 {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, UNIX0Filesystem)
     assert fs.version == 0
 
@@ -29,7 +29,7 @@ def test_unix0_read():
     shell.onecmd("dir t:/system/", batch=True)
     shell.onecmd("type t:/system/password", batch=True)
 
-    x = fs.read_text("dd/data/9k")
+    x = shell.volumes.read_text("t:dd/data/9k")
     assert x.startswith("|")
 
     l = list(fs.entries_list)
@@ -37,13 +37,13 @@ def test_unix0_read():
     assert "dd" in filenames
     assert "system" in filenames
 
-    entry = fs.get_file_entry("/test/a")
+    entry = shell.volumes.get_file_entry("t:/test/a")
     assert not entry.inode.is_large
 
-    entry = fs.get_file_entry("/test/b")
+    entry = shell.volumes.get_file_entry("t:/test/b")
     assert not entry.inode.is_large
 
-    entry = fs.get_file_entry("/test/c")
+    entry = shell.volumes.get_file_entry("t:/test/c")
     assert entry.inode.is_large
 
 
@@ -51,7 +51,7 @@ def test_unix0_write():
     shell = Shell(verbose=True)
     shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
     shell.onecmd(f"mount ou: /unix0 {DSK}.mo", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
 
     i = fs.get_inode("/")
     assert i.inode_num == V0_DD_INODE
@@ -64,7 +64,7 @@ def test_unix0_write():
     shell.onecmd("copy/ascii tests/dsk/data/10.txt ou:/data/10.txt", batch=True)
     shell.onecmd("copy/ascii tests/dsk/data/100.txt ou:/data/100.txt", batch=True)
     shell.onecmd("copy/ascii tests/dsk/data/10.txt ou:/data/11.txt", batch=True)
-    x = fs.read_bytes("/data/100.txt", ASCII)
+    x = shell.volumes.read_bytes("ou:/data/100.txt", ASCII)
     x = x.rstrip(b"\0")
     assert len(x) == 4400
     for i in range(0, 100):
@@ -75,7 +75,7 @@ def test_unix0_write():
     assert not i.is_large
     size = i.size
     length = i.get_length()
-    with fs.open_file("/data/10.txt") as f:
+    with shell.volumes.open_file("ou:/data/10.txt") as f:
         f.truncate(size + 100)
     i = fs.get_inode("/data/10.txt")
     assert not i.is_large
@@ -86,7 +86,7 @@ def test_unix0_write():
     i = fs.get_inode("/data/10.txt")
     assert not i.is_large
     size = i.size
-    with fs.open_file("/data/10.txt") as f:
+    with shell.volumes.open_file("ou:/data/10.txt") as f:
         f.truncate(size + 500)
     i = fs.get_inode("/data/10.txt")
     assert i.is_large
@@ -97,7 +97,7 @@ def test_unix0_write():
     assert i.is_large
     size = i.size
     length = i.get_length()
-    with fs.open_file("/data/100.txt") as f:
+    with shell.volumes.open_file("ou:/data/100.txt") as f:
         f.truncate(size + 200)
     i = fs.get_inode("/data/100.txt")
     assert i.is_large
@@ -109,7 +109,7 @@ def test_unix0_write():
     assert not i.is_large
     size = i.size
     length = i.get_length()
-    with fs.open_file("/data/11.txt") as f:
+    with shell.volumes.open_file("ou:/data/11.txt") as f:
         f.truncate(size - 100)
     i = fs.get_inode("/data/11.txt")
     assert i.get_length() < length
@@ -121,7 +121,7 @@ def test_unix0_write():
     assert i.is_large
     size = i.size
     length = i.get_length()
-    with fs.open_file("/data/100.txt") as f:
+    with shell.volumes.open_file("ou:/data/100.txt") as f:
         f.truncate(size - 200)
     i = fs.get_inode("/data/100.txt")
     assert i.is_large
@@ -133,7 +133,7 @@ def test_unix0_free_storage_map():
     shell = Shell(verbose=True)
     shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
     shell.onecmd(f"mount ou: /unix0 {DSK}.mo", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
 
     fsm = UNIX0FreeStorageMap.read(fs)
     for i in range(V0_FIRST_INODE_BLOCK, V0_FIRST_INODE_BLOCK + V0_INODE_BLOCKS):  # Blocks 2 to 711 contain the inodes
@@ -185,7 +185,7 @@ def test_unix0_delete():
     shell = Shell(verbose=True)
     shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
     shell.onecmd(f"mount ou: /unix0 {DSK}.mo", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
     fsm = UNIX0FreeStorageMap.read(fs)
     used = fsm.used()
     free = fsm.free()
@@ -211,7 +211,7 @@ def test_unix0_inode():
     shell = Shell(verbose=True)
     shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
     shell.onecmd(f"mount ou: /unix0 {DSK}.mo", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
 
     inode0 = UNIX0Inode.allocate(fs, number_of_blocks=1, size=0)
     inode1 = UNIX0Inode.allocate(fs, number_of_blocks=1, size=0)
@@ -227,7 +227,7 @@ def test_unix0_dir():
     shell = Shell(verbose=True)
     shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
     shell.onecmd(f"mount ou: /unix0 {DSK}.mo", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
 
     dir0 = UNIX0Directory.read(fs, fs.get_file_entry("/test/").inode)
     assert dir0.inode.isdir

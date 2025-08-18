@@ -9,7 +9,7 @@ DSK = "tests/dsk/dos11_magtape.tap"
 def test_dos11magtape_read():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /dos11mt {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, DOS11MagTapeFilesystem)
 
     shell.onecmd("dir t:", batch=True)
@@ -31,7 +31,7 @@ def test_dos11magtape_write():
     shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
     shell.onecmd(f"mount in: /dos11mt {DSK}", batch=True)
     shell.onecmd(f"mount ou: /dos11mt {DSK}.mo", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
     assert isinstance(fs, DOS11MagTapeFilesystem)
 
     d = fs.get_file_entry("500.TXT")
@@ -61,7 +61,7 @@ def test_dos11magtape_init():
     shell.onecmd("copy in:*.TXT ou:", batch=True)
     shell.onecmd("copy in:*.TXT ou:", batch=True)
 
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
     x = fs.read_bytes("1000.txt")
     x = x.rstrip(b"\0")
     assert len(x) == 44000

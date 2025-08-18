@@ -28,7 +28,7 @@ def test_tss8():
     shell = Shell(verbose=True)
     shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
     shell.onecmd(f"mount t: /tss8 {DSK}.mo", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, TSS8Filesystem)
 
     shell.onecmd("dir t:", batch=True)
@@ -85,44 +85,42 @@ def test_tss8_write_file():
     shell = Shell(verbose=True)
     shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
     shell.onecmd(f"mount t: /tss8 {DSK}.mo", batch=True)
-    fs = shell.volumes.get('T')
-    assert isinstance(fs, TSS8Filesystem)
 
     blocks = 5
-    filename = "[10,20]data.asc"
+    filename = "t:[10,20]data.asc"
     data = b""
     for i in range(0, blocks):
         data += chr(i + 65).encode("ascii") * TSS8_BLOCK_SIZE_BYTES
-    fs.write_bytes(filename, data)
+    shell.volumes.write_bytes(filename, data)
 
-    data_read = fs.read_bytes(filename)
+    data_read = shell.volumes.read_bytes(filename)
     assert data_read == data
 
-    f = fs.open_file(filename)
+    f = shell.volumes.open_file(filename)
     for i in range(0, blocks):
         block_data = f.read_block(i)
         assert block_data == chr(i + 65).encode("ascii") * TSS8_BLOCK_SIZE_BYTES
     f.close()
 
-    f = fs.open_file(filename)
+    f = shell.volumes.open_file(filename)
     for i in range(0, blocks):
         tmp = chr(i + 85).encode("ascii") * TSS8_BLOCK_SIZE_BYTES
         f.write_block(tmp, i)
     f.close()
 
-    f = fs.open_file(filename)
+    f = shell.volumes.open_file(filename)
     for i in range(0, blocks):
         block_data = f.read_block(i)
         assert block_data == chr(i + 85).encode("ascii") * TSS8_BLOCK_SIZE_BYTES
     f.close()
 
-    f = fs.open_file(filename)
+    f = shell.volumes.open_file(filename)
     for i in range(0, blocks // 2):
         tmp = chr(i + 85).encode("ascii") * TSS8_BLOCK_SIZE_BYTES * 2
         f.write_block(tmp, i * 2, number_of_blocks=2)
     f.close()
 
-    f = fs.open_file(filename)
+    f = shell.volumes.open_file(filename)
     for i in range(0, blocks // 2):
         block_data = f.read_block(i * 2, number_of_blocks=2)
         assert block_data == chr(i + 85).encode("ascii") * TSS8_BLOCK_SIZE_BYTES * 2

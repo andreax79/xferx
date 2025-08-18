@@ -142,7 +142,7 @@ def test_fiodec():
 # def test_unix0_read():
 #     shell = Shell(verbose=True)
 #     shell.onecmd(f"mount t: /unix0 {DSK}", batch=True)
-#     fs = shell.volumes.get('T')
+#     fs = shell.volumes.get_volume('T')
 #     assert isinstance(fs, UNIX0Filesystem)
 #     assert fs.version == 0
 #

@@ -24,7 +24,7 @@ def test_date_round_trip():
 def test_pascal():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /pascal {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, PascalFilesystem)
 
     shell.onecmd("dir t:", batch=True)
@@ -54,7 +54,7 @@ def test_pascal_init():
     shell.onecmd(f"mount ou: /pascal {DSK}.mo", batch=True)
     shell.onecmd("dir ou:", batch=True)
     shell.onecmd("copy t:*.txt ou:", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
 
     x1 = fs.read_bytes("50.txt")
     x1 = x1.rstrip(b"\0")

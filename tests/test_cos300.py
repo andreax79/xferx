@@ -96,7 +96,7 @@ def test_write_directory_entry():
 def test_cos300():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /cos300 {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, COS300Filesystem)
     assert fs.dev.is_rx
 
@@ -124,7 +124,7 @@ def test_cos300_init():
     shell.onecmd(f"mount ou: /cos310 {DSK1}.mo", batch=True)
     shell.onecmd("dir ou:", batch=True)
     shell.onecmd("copy t:*.A ou:", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
 
     x1 = fs.read_bytes("A50.A")
     x1 = x1.rstrip(b"\0")

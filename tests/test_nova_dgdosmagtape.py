@@ -10,7 +10,7 @@ DSK_DUMP = "tests/dsk/nova_magtape_dump.tap"
 def test_dgdos_magtape_read():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /dgdosmt {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, DGDOSMagTapeFilesystem)
 
     shell.onecmd("dir t:", batch=True)
@@ -29,13 +29,13 @@ def test_dgdos_magtape_read():
 def test_dgdos_magtape_dump_read():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount dm0: /dgdosmt {DSK_DUMP}", batch=True)
-    # fs = shell.volumes.get('T')
+    # fs = shell.volumes.get_volume('T')
     # assert isinstance(fs, DGDOSMagTapeFilesystem)
 
     shell.onecmd("mount d: /dgdosdump dm0:5", batch=True)
     shell.onecmd("dir d:", batch=True)
 
-    fs = shell.volumes.get('D')
+    fs = shell.volumes.get_volume('D')
     x = fs.read_bytes("Z20")
     assert x == b'\0' * 10240
 
@@ -47,7 +47,7 @@ def test_dgdos_magtape_dump_read():
 #     shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
 #     shell.onecmd(f"mount in: /dgdosmt {DSK}", batch=True)
 #     shell.onecmd(f"mount ou: /dgdosmt {DSK}.mo", batch=True)
-#     fs = shell.volumes.get('OU')
+#     fs = shell.volumes.get_volume('OU')
 #     assert isinstance(fs, DGDOSMagTapeFilesystem)
 #
 #     d = fs.get_file_entry("5")
@@ -76,7 +76,7 @@ def test_dgdos_magtape_dump_read():
 #     shell.onecmd("dir ou:", batch=True)
 #     shell.onecmd("copy in:* ou:", batch=True)
 #
-#     fs = shell.volumes.get('OU')
+#     fs = shell.volumes.get_volume('OU')
 #     x = fs.read_bytes("5")
 #     x = x.rstrip(b"\0")
 #     assert len(x) == 2200

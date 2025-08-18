@@ -51,7 +51,7 @@ def test_rt1_canonical_filename():
 def test_rt11():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /rt11 {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, RT11Filesystem)
 
     shell.onecmd("dir t:", batch=True)
@@ -81,7 +81,7 @@ def test_rt11_init():
     shell.onecmd(f"mount ou: /rt11 {DSK}.mo", batch=True)
     shell.onecmd("dir ou:", batch=True)
     shell.onecmd("copy/type:t t:*.txt ou:", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
 
     x1 = fs.read_bytes("50.txt")
     x1 = x1.rstrip(b"\0")

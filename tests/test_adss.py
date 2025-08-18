@@ -157,22 +157,22 @@ def test_directory():
 def test_adss():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount adss1: /adss {DSK}", batch=True)
-    fs = shell.volumes.get('ADSS1')
+    fs = shell.volumes.get_volume('ADSS1')
     assert isinstance(fs, ADSSFilesystem)
 
     shell.onecmd("dir adss1:", batch=True)
     shell.onecmd("type adss1:f1;src", batch=True)
 
-    x = fs.read_bytes("b100;bin")
+    x = shell.volumes.read_bytes("adss1:b100;bin")
     assert len(x) == 300
     assert from_bytes_to_18bit_words(x, IMAGE) == list(range(0, 100))
 
-    x = fs.read_bytes("f100;src")
+    x = shell.volumes.read_bytes("adss1:f100;src")
     assert len(x) == 4400
     for i in range(0, 100):
         assert f"{i:5d} ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890".encode("ascii") in x
 
-    l = list(fs.filter_entries_list("*;SRC"))
+    l = list(shell.volumes.filter_entries_list("adss1:*;SRC"))
     assert len(l) == 3
 
 
@@ -184,13 +184,12 @@ def test_adss_init():
     shell.onecmd(f"mount adss2: /adss {DSK}.mo", batch=True)
     shell.onecmd("dir adss2:", batch=True)
     shell.onecmd("copy adss1:*;SRC adss2:", batch=True)
-    fs = shell.volumes.get('ADSS2')
 
-    l = list(fs.filter_entries_list("*;SRC"))
+    l = list(shell.volumes.filter_entries_list("adss2:*;SRC"))
     assert len(l) == 3
 
     shell.onecmd("delete adss2:F1;SRC", batch=True)
-    l = list(fs.filter_entries_list("*;SRC"))
+    l = list(shell.volumes.filter_entries_list("adss2:*;SRC"))
     assert len(l) == 2
 
 
@@ -198,20 +197,20 @@ def test_adss_write_file():
     shell = Shell(verbose=True)
     shell.onecmd(f"copy {DSK} {DSK}_2.mo", batch=True)
     shell.onecmd(f"mount adss2: /adss {DSK}_2.mo", batch=True)
-    fs = shell.volumes.get('ADSS2')
+    fs = shell.volumes.get_volume('ADSS2')
     assert isinstance(fs, ADSSFilesystem)
 
     for l in (1, 10, 100, 1000):
         words = list(range(0, l))
         data = from_18bit_words_to_bytes(words, IMAGE)
-        filename = f"T{l};BIN"
-        fs.write_bytes(filename, data)
-        data_read = fs.read_bytes(filename)
+        filename = f"adss2:T{l};BIN"
+        shell.volumes.write_bytes(filename, data)
+        data_read = shell.volumes.read_bytes(filename)
         assert data_read == data
 
     for l in (1, 10, 100, 1000):
-        filename = f"T{l};BIN"
-        data = fs.read_bytes(filename)
+        filename = f"adss2:T{l};BIN"
+        data = shell.volumes.read_bytes(filename)
         words = from_bytes_to_18bit_words(data, IMAGE)
         assert words == list(range(0, l))
 
@@ -220,13 +219,13 @@ def test_adss_write_file():
         for i in range(0, l):
             tmp.extend(f"{i:5d} ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890\n".encode("ascii"))
         data = bytes(tmp)
-        filename = f"T{l};SRC"
-        fs.write_bytes(filename, data)
-        data_read = fs.read_bytes(filename)
+        filename = f"adss2:T{l};SRC"
+        shell.volumes.write_bytes(filename, data)
+        data_read = shell.volumes.read_bytes(filename)
         assert data_read == data
 
     shell.onecmd("create /allocate:400 adss2:big;bin", batch=True)
-    big = fs.get_file_entry("BIG;BIN")
+    big = shell.volumes.get_file_entry("adss2:BIG;BIN")
     assert len(list(big.get_blocks())) == 400
 
     shell.onecmd("dismount adss2:", batch=True)

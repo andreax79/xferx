@@ -7,7 +7,7 @@ DSK = "tests/dsk/unixv6.dsk"
 def test_unix6_read():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /unix6 {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, UNIXFilesystem)
     assert fs.version == 6
 

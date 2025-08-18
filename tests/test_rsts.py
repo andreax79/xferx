@@ -16,7 +16,7 @@ DSK = "tests/dsk/rsts.dsk"
 def test_rsts():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /rsts {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, RSTSFilesystem)
 
     shell.onecmd("dir t:", batch=True)

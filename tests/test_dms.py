@@ -288,7 +288,7 @@ def test_dms():
 
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /dms {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, DMSFilesystem)
 
     shell.onecmd("dir t:", batch=True)
@@ -318,7 +318,7 @@ def test_dms():
     for i in range(0, 50):
         assert f"{i:5d} ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890".encode("ascii") in x1
 
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
     l = list(fs.filter_entries_list("*.ascii"))
     assert len(l) == 7
     l = list(fs.filter_entries_list("*.user"))
@@ -349,7 +349,7 @@ def test_dms_write_file():
     shell = Shell(verbose=True)
     shell.onecmd(f"copy {DSK} {DSK}_2.mo", batch=True)
     shell.onecmd(f"mount dms2: /dms {DSK}_2.mo", batch=True)
-    fs = shell.volumes.get('DMS2')
+    fs = shell.volumes.get_volume('DMS2')
     assert isinstance(fs, DMSFilesystem)
 
     block_size = 256
@@ -405,7 +405,7 @@ def test_dms_dectape():
         f.truncate(380292)
 
     shell.onecmd(f"mount src: /dms {DSK}", batch=True)
-    fs = shell.volumes.get('SRC')
+    fs = shell.volumes.get_volume('SRC')
     assert isinstance(fs, DMSFilesystem)
 
     # Init
@@ -423,7 +423,7 @@ def test_dms_dectape():
     for i in range(0, 50):
         assert f"{i:5d} ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890".encode("ascii") in x1
 
-    fs = shell.volumes.get('DMS3')
+    fs = shell.volumes.get_volume('DMS3')
     l = list(fs.filter_entries_list("*.ascii"))
     assert len(l) == 7
     l = list(fs.filter_entries_list("*.user"))

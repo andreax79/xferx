@@ -14,7 +14,7 @@ DSK = "tests/dsk/appledos.dsk"
 def test_appledos():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /appledos {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, AppleDOSFilesystem)
 
     shell.onecmd("dir t:", batch=True)
@@ -23,13 +23,13 @@ def test_appledos():
     shell.onecmd("dir/brief t:*.notfound", batch=True)
     shell.onecmd("type t:1.txt", batch=True)
 
-    x = fs.read_bytes("50.txt")
+    x = shell.volumes.read_bytes("t:50.txt")
     x = x.rstrip(b"\0")
     assert len(x) == 2200
     for i in range(0, 50):
         assert f"{i:5d} ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890".encode("ascii") in x
 
-    l = list(fs.filter_entries_list("*.TXT"))
+    l = list(shell.volumes.filter_entries_list("t:*.TXT"))
     assert len(l) == 10
     for x in l:
         assert not x.is_empty
@@ -44,9 +44,8 @@ def test_appledos_init():
     shell.onecmd(f"mount ou: /appledos {DSK}.mo", batch=True)
     shell.onecmd("dir ou:", batch=True)
     shell.onecmd("copy/type:t t:*.txt ou:", batch=True)
-    fs = shell.volumes.get('OU')
 
-    x1 = fs.read_bytes("50.txt")
+    x1 = shell.volumes.read_bytes("ou:50.txt")
     x1 = x1.rstrip(b"\0")
     assert len(x1) == 2200
     for i in range(0, 50):
@@ -55,14 +54,14 @@ def test_appledos_init():
     with pytest.raises(Exception):
         shell.onecmd("delete ou:aaa", batch=True)
     shell.onecmd("delete ou:50.txt", batch=True)
-    fs.read_bytes("10.txt")
+    shell.volumes.read_bytes("ou:10.txt")
     with pytest.raises(FileNotFoundError):
-        fs.read_bytes("50.txt")
+        shell.volumes.read_bytes("ou:50.txt")
 
     # Test init mounted volume
     shell.onecmd("init ou:", batch=True)
     with pytest.raises(Exception):
-        fs.read_bytes("10.txt")
+        shell.volumes.read_bytes("ou:10.txt")
 
 
 def test_appledos_init_non_standard():
@@ -85,12 +84,11 @@ def test_apple_single():
     shell.onecmd(f"create {DSK}.mo /allocate:280", batch=True)
     shell.onecmd(f"init /appledos {DSK}.mo", batch=True)
     shell.onecmd(f"mount ou: /appledos {DSK}.mo", batch=True)
-    fs = shell.volumes.get('OU')
 
     shell.onecmd("copy tests/dsk/ciao.apple2 ou:", batch=True)
-    test1 = fs.get_file_entry("ciao.apple2")
+    test1 = shell.volumes.get_file_entry("ou:ciao.apple2")
     assert test1.file_type == "B"
-    apple_single3 = fs.read_bytes("ciao.apple2")
+    apple_single3 = shell.volumes.read_bytes("ou:ciao.apple2")
     _, _, info3 = decode_apple_single(apple_single3)
     assert info3.file_type == 0x6
     assert info3.aux_type == 0x2000

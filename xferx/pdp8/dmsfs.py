@@ -1042,7 +1042,7 @@ class DMSFilesystem(AbstractFilesystem):
             sam = StorageAllocationMap.read(self)
             reserved_blocks = sam.files_blocks.get(RESERVED_FILE_NUMBER, [])
             if not reserved_blocks or not self.first_scratch_block_number in reserved_blocks:
-                raise OSError(errno.EIO, os.strerror(errno.EIO))
+                raise OSError(errno.EIO, "Storage Allocate Map is invalid")
         return self
 
     def read_words_block(self, block_number: int) -> t.List[int]:

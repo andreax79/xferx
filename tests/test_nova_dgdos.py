@@ -89,7 +89,7 @@ def test_date_round_trip():
 def test_bitmap():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /dgdos {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     bitmap = fs.read_bitmap()
     for b in fs.read_dir_entries():
         if not b.is_directory:
@@ -101,7 +101,7 @@ def test_rdos():
     shell = Shell(verbose=True)
     shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
     shell.onecmd(f"mount ou: /dgdos {DSK}.mo", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
     assert isinstance(fs, DGDOSFilesystem)
 
     shell.onecmd("dir ou:", batch=True)

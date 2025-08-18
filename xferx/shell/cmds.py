@@ -69,15 +69,11 @@ DIR             Lists file directories
     """
     # fmt: on
     args, options = extract_options(args, "/brief", "/uic", "/full")
-    if len(args) > 1:
-        raise CommandError("?DIR-F-Too many arguments")
-    if args:
-        volume_id, pattern = splitdrive(args[0])
+    if not args:
+        context.volumes.dir(f"{DEFAULT_VOLUME}:", options, cmd="DIR")  # type: ignore
     else:
-        volume_id = DEFAULT_VOLUME
-        pattern = None
-    fs = context.volumes.get(volume_id, cmd="DIR")
-    fs.dir(volume_id, pattern, options)  # type: ignore
+        for arg in args:
+            context.volumes.dir(arg, options, cmd="DIR")  # type: ignore
 
 
 @cmds.register("TY_PE")
@@ -97,17 +93,14 @@ TYPE            Outputs files to the terminal
     if not args:
         line = ask("File? ")
         args = shlex.split(line)
-    if len(args) > 1:
-        raise CommandError("?TYPE-F-Too many arguments")
-    volume_id, pattern = splitdrive(args[0])
-    fs = context.volumes.get(volume_id, cmd="TYPE")
     match = False
-    for entry in fs.filter_entries_list(pattern):
-        match = True
-        content = entry.read_bytes(file_mode=ASCII)
-        if content is not None:
-            os.write(sys.stdout.fileno(), content)
-            sys.stdout.write("\n")
+    for arg in args:
+        for entry in context.volumes.filter_entries_list(pattern=arg, cmd="TYPE"):
+            match = True
+            content = entry.read_bytes(file_mode=ASCII)
+            if content is not None:
+                os.write(sys.stdout.fileno(), content)
+                sys.stdout.write("\n")
     if not match:
         raise CommandError("?TYPE-F-No files")
 
@@ -142,11 +135,11 @@ COPY            Copies files
     if not cfrom:
         cfrom = ask("From? ")
     from_volume_id, cfrom = splitdrive(cfrom)
-    from_fs = context.volumes.get(from_volume_id, cmd="COPY")
+    from_fs = context.volumes.get_volume(from_volume_id, cmd="COPY")
     if not to:
         to = ask("To? ")
     to_volume_id, to = splitdrive(to)
-    to_fs = context.volumes.get(to_volume_id, cmd="COPY")
+    to_fs = context.volumes.get_volume(to_volume_id, cmd="COPY")
     from_len = len(list(from_fs.filter_entries_list(cfrom)))
     from_list = from_fs.filter_entries_list(cfrom)
     file_type = options["type"].upper() if isinstance(options.get("type"), str) else None  # type: ignore
@@ -155,7 +148,7 @@ COPY            Copies files
     elif from_len == 1:  # One file to be copied
         source = list(from_list)[0]
         if not to:
-            to_pwd = context.volumes.get(to_volume_id).get_pwd()
+            to_pwd = context.volumes.get_volume(to_volume_id).get_pwd()
             to_path = os.path.join(to_pwd, source.basename)
         elif to and to_fs.isdir(to):
             to_path = os.path.join(to, source.basename)
@@ -168,7 +161,7 @@ COPY            Copies files
         copy_file(from_fs, from_entry, to_fs, to_path, file_type, file_mode, context.verbose, cmd="COPY")
     else:
         if not to:
-            to = context.volumes.get(to_volume_id).get_pwd()
+            to = context.volumes.get_volume(to_volume_id).get_pwd()
         elif not to_fs.isdir(to):
             raise CommandError("?COPY-F-Target must be a volume or a directory")
         for from_entry in from_fs.filter_entries_list(cfrom):
@@ -201,15 +194,15 @@ DELETE          Removes files from a volume
         line = ask("Files? ")
         args = shlex.split(line)
     for arg in args:
-        volume_id, pattern = splitdrive(arg)
-        fs = context.volumes.get(volume_id, cmd="DEL")
         match = False
-        for x in fs.filter_entries_list(pattern, expand=False):  # don't expand directories
+        for x in context.volumes.filter_entries_list(
+            pattern=arg, expand=False, cmd="DELETE"
+        ):  # don't expand directories
             match = True
             if not x.delete():
-                sys.stdout.write("?DEL-F-Error deleting %s\n" % x.fullname)
+                sys.stdout.write("?DELETE-F-Error deleting %s\n" % x.fullname)
     if not match:
-        raise CommandError("?DEL-F-No files")
+        raise CommandError("?DELETE-F-No files")
 
 
 @cmds.register("E_XAMINE")
@@ -230,9 +223,7 @@ EXAMINE         Examines disk structure
     if not args:
         args = ask("From? ").split()
     for arg in args:
-        volume_id, fullname = splitdrive(arg)
-        fs = context.volumes.get(volume_id)
-        fs.examine(fullname, options)
+        context.volumes.examine(arg=arg, options=options, cmd="EXAMINE")
 
 
 @cmds.register("DU_MP")
@@ -266,9 +257,7 @@ DUMP            Prints formatted data dumps of files or devices
         args = ask("From? ").split()
     for arg in args:
         try:
-            volume_id, fullname = splitdrive(arg)
-            fs = context.volumes.get(volume_id)
-            fs.dump(fullname, start=start, end=end)
+            context.volumes.dump(fullname=arg, start=start, end=end, cmd="DUMP")
         except FileNotFoundError:
             raise CommandError("?DUMP-F-File not found")
 
@@ -314,11 +303,9 @@ CREATE          Creates files or directories
     path = len(args) > 0 and args[0]
     if not path:
         path = ask("File? ")
-    volume_id, fullname = splitdrive(path)
-    fs = context.volumes.get(volume_id, cmd="CREATE")
     if kind == "directory":
         # Create a directory
-        fs.create_directory(fullname, options)
+        context.volumes.create_directory(fullname=path, options=options, cmd="CREATE")
     else:
         # Create a file
         allocate = options.get("allocate")
@@ -330,10 +317,11 @@ CREATE          Creates files or directories
                 raise ValueError
         except:
             raise CommandError("?CREATE-F-Invalid value specified with option")
-        fs.create_file(
-            fullname,
+        context.volumes.create_file(
+            fullname=path,
             number_of_blocks=number_of_blocks,
             file_type=options.get("type") if isinstance(options.get("type"), str) else None,  # type: ignore
+            cmd="CREATE",
         )
 
 
@@ -505,8 +493,7 @@ INITIALIZE      Writes an empty device directory on the specified volume
             options["device_type"] = options["dev"].lower()  # type: ignore
         except Exception:
             pass
-        fs = context.volumes.get(target)
-        fs.initialize(fs.dev, **options)
+        context.volumes.initialize(target=target, options=options, cmd="INITIALIZE")
     else:
         filesystem_cls = None
         for k, v in FILESYSTEMS.items():
@@ -516,7 +503,7 @@ INITIALIZE      Writes an empty device directory on the specified volume
         if filesystem_cls is None:
             raise CommandError("?INITIALIZE-F-Filesystem not specified")
         parent_volume_id, target_path = splitdrive(target)
-        parent_fs = context.volumes.get(parent_volume_id)
+        parent_fs = context.volumes.get_volume(parent_volume_id)
         target_file = parent_fs.open_file(target_path)
         try:
             device_type = options["dev"].lower()  # type: ignore
@@ -589,7 +576,7 @@ PWD             Displays the current working drive and directory
         PWD
 
     """
-    sys.stdout.write("%s\n" % context.volumes.get_pwd())
+    sys.stdout.write(f"{context.volumes.get_pwd()}\n")
 
 
 @cmds.register("SH_OW")
@@ -638,10 +625,9 @@ def show_type(context: "ShellContext", args: t.List[str]) -> None:
         volume_id = ask("Volume? ")
     else:
         volume_id = args[1]
-    fs = context.volumes.get(volume_id)
     sys.stdout.write("File Types\n")
     sys.stdout.write("----------\n")
-    for item in fs.get_types():
+    for item in context.volumes.get_types(volume_id=volume_id, cmd="SHOW TYPES"):
         sys.stdout.write(f"{item}\n")
 
 

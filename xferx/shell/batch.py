@@ -35,12 +35,10 @@ class BatchContext(ShellContext):
     next_line: int = 0
     on_error: str = "EXIT"
 
-    def __init__(self, context: "ShellContext", filename: str) -> None:
+    def __init__(self, context: "ShellContext", fullname: str) -> None:
         super().__init__(context.shell)
         # Read the file
-        volume_id, filespec = splitdrive(filename)
-        fs = context.volumes.get(volume_id, cmd="BATCH")
-        self.lines = fs.read_text(filespec).split("\n")
+        self.lines = context.volumes.read_text(fullname=fullname, cmd="BATCH").split("\n")
         # Find labels
         self.labels = {}
         for i, raw_line in enumerate(self.lines):

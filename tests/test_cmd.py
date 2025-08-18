@@ -31,7 +31,7 @@ def test_assign():
 
 def test_cmds():
     shell = Shell(verbose=True)
-    sys_fs = shell.volumes.get('DK')
+    sys_fs = shell.volumes.get_volume('DK')
     license = sys_fs.read_bytes("LICENSE")
     with pytest.raises(FileNotFoundError):
         sys_fs.read_bytes("not found")
@@ -49,7 +49,7 @@ def test_cmds():
     shell.onecmd("CREATE test0.dsk /allocate:500", batch=True)
     shell.onecmd("INITIALIZE /RT11 test0.dsk", batch=True)
     shell.onecmd("MOUNT T: test0.dsk", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, RT11Filesystem)
     with pytest.raises(FileNotFoundError):
         fs.read_bytes("not found")

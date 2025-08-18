@@ -9,7 +9,7 @@ DSK = "tests/dsk/caps11.t60"
 def test_caps11_read():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /caps11 {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, CAPS11Filesystem)
 
     shell.onecmd("dir t:[*,*]", batch=True)
@@ -30,7 +30,7 @@ def test_caps11_write():
     shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
     shell.onecmd(f"mount in: /caps11 {DSK}", batch=True)
     shell.onecmd(f"mount ou: /caps11 {DSK}.mo", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
     assert isinstance(fs, CAPS11Filesystem)
 
     d = fs.get_file_entry("500.TXT")
@@ -57,7 +57,7 @@ def test_caps11_init():
     shell.onecmd(f"mount ou: /caps11 {DSK}.mo", batch=True)
     shell.onecmd("dir ou:", batch=True)
     shell.onecmd("copy in:*.TXT ou:", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
 
     x = fs.read_bytes("1000.txt")
     x = x.rstrip(b"\0")

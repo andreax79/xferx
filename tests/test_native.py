@@ -4,7 +4,7 @@ from xferx.shell import Shell
 
 def test_native():
     shell = Shell(verbose=True)
-    fs = shell.volumes.get("DK")
+    fs = shell.volumes.get_volume("DK")
     assert isinstance(fs, NativeFilesystem)
 
     shell.onecmd("dir dk:", batch=True)

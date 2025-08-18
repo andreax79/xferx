@@ -9,7 +9,7 @@ DSK = "tests/dsk/files11.dsk"
 def test_files11():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /files11 {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, Files11Filesystem)
 
     indexfs = fs.read_file_header(INDEXF_SYS)

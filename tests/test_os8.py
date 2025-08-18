@@ -137,7 +137,7 @@ def test_os8_write_rx01():
     shell.onecmd(f"init /os8 {diskname}", batch=True)
     shell.onecmd(f"mount ou: /os8 {diskname}", batch=True)
     shell.onecmd("dir ou:", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
     assert isinstance(fs, OS8Filesystem)
     assert fs.num_of_partitions == 1
     vol0 = fs.get_partition(0)
@@ -156,7 +156,7 @@ def test_os8_write_rx01():
 def test_os8():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /os8 {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, OS8Filesystem)
     print(fs.dev.sector_size)
     assert fs.dev.is_rx
@@ -183,7 +183,7 @@ def test_os8_init():
     shell.onecmd(f"mount ou: /os8 {DSK}.mo", batch=True)
     shell.onecmd("dir ou:", batch=True)
     shell.onecmd("copy t:*.TX ou:", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
 
     x1 = fs.read_bytes("[0]50.tx")
     x1 = x1.rstrip(b"\0")
@@ -201,7 +201,7 @@ def test_os8_write_file():
     shell = Shell(verbose=True)
     shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
     shell.onecmd(f"mount t: /os8 {DSK}.mo", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, OS8Filesystem)
 
     blocks = 5

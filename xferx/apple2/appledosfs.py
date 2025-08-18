@@ -952,7 +952,7 @@ class AppleDOSFilesystem(AbstractAppleDiskFilesystem):
             self.dev.prodos_order = False
             vtoc = dos_vtoc  # type: ignore
         if vtoc is None or not vtoc.is_valid:
-            raise OSError(errno.EIO, os.strerror(errno.EIO))
+            raise OSError(errno.EIO, "VTOC is invalid")
         self.catalog_address = vtoc.catalog_address
         if vtoc.number_of_tracks > 0:
             self.number_of_tracks = vtoc.number_of_tracks

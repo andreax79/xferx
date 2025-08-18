@@ -19,6 +19,7 @@
 # THE SOFTWARE.
 
 import argparse
+import sys
 import typing as t
 
 from .shell import Shell
@@ -88,12 +89,16 @@ def main() -> None:
     shell = Shell(verbose=options.verbose)
     # Mount disks
     i = 0
-    for fstype, dsk in getattr(options, "mounts", []):
-        shell.volumes.mount(dsk, f"DL{i}:", fstype=fstype, verbose=shell.verbose)
-        i = i + 1
-    for i, dsk in enumerate(options.disk):
-        shell.volumes.mount(dsk, f"DL{i}:", verbose=shell.verbose)
-        i = i + 1
+    try:
+        for fstype, dsk in getattr(options, "mounts", []):
+            shell.volumes.mount(dsk, f"DL{i}:", fstype=fstype, verbose=shell.verbose)
+            i = i + 1
+        for i, dsk in enumerate(options.disk):
+            shell.volumes.mount(dsk, f"DL{i}:", verbose=shell.verbose)
+            i = i + 1
+    except Exception as ex:
+        sys.stderr.write(f"{ex}\n")
+        sys.exit(1)
     # Change dir
     if options.dir:
         shell.volumes.set_default_volume(options.dir)
@@ -103,7 +108,7 @@ def main() -> None:
             for command in options.c:
                 shell.onecmd(command, batch=True)
         except Exception:
-            pass
+            sys.exit(1)
     # Start interactive shell
     if options.interactive or not options.c:
         shell.cmd_loop()

@@ -9,7 +9,7 @@ DSK = "tests/dsk/dos11_dectape.tap"
 def test_dos11_dectape():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /dos11 {DSK}", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, DOS11Filesystem)
 
     shell.onecmd("dir t:[*,*]", batch=True)
@@ -30,7 +30,7 @@ def test_dos11_dectape_bitmap():
     shell = Shell(verbose=True)
     shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
     shell.onecmd(f"mount t: /dos11 {DSK}.mo", batch=True)
-    fs = shell.volumes.get('T')
+    fs = shell.volumes.get_volume('T')
     assert isinstance(fs, DOS11Filesystem)
 
     d = fs.get_file_entry("[1,1]500.TXT")
@@ -76,7 +76,7 @@ def test_dos11_init():
     shell.onecmd(f"mount ou: /dos11 {DSK}.mo", batch=True)
     shell.onecmd("dir ou:", batch=True)
     shell.onecmd("copy in:* ou:", batch=True)
-    fs = shell.volumes.get('OU')
+    fs = shell.volumes.get_volume('OU')
     assert isinstance(fs, DOS11Filesystem)
 
     # Create the UIC

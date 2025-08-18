@@ -784,6 +784,7 @@ class RT11Filesystem(AbstractRXBlockFilesystem):
     def mount(
         cls,
         file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        strict: t.Union[bool, str] = True,
         **kwargs: t.Union[bool, str],
     ) -> "RT11Filesystem":
         self = cls(file_or_dev)
@@ -793,7 +794,19 @@ class RT11Filesystem(AbstractRXBlockFilesystem):
         self.partitions = [
             RT11Partition.read(self, i, size) for (i, size) in enumerate(self.calculate_partition_sizes())
         ]
+        if strict:
+            self.check_rt11()
         return self
+
+    def check_rt11(self) -> None:
+        """
+        Check if the filesystem is a valid RT-11 filesystem
+        """
+        for partition in self.partitions:
+            if partition.pack_cluster_size != 1:
+                raise OSError(errno.EIO, "Pack cluster size is not 1")
+            if partition.dir_segment >= partition.partition_size:
+                raise OSError(errno.EIO, "Invalid directory segment")
 
     def calculate_partition_sizes(self) -> t.List[int]:
         """
@@ -954,7 +967,9 @@ class RT11Filesystem(AbstractRXBlockFilesystem):
         if arg:
             self.dump(arg)
         else:
+            is_rx = getattr(self.dev, 'is_rx', False)
             sys.stdout.write(f"Number of partitions:       {len(self.partitions)}\n")
+            sys.stdout.write(f"Is RX01/RX02:               {'YES' if is_rx else 'NO'}\n")
             for partition in self.partitions:
                 sys.stdout.write(partition.examine())
                 for segment in partition.read_dir_segments():

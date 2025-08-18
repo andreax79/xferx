@@ -130,7 +130,7 @@ class Shell:
             has_volume_id = ":" in text
             volume_id, path = splitdrive(text)
             pattern = path + "*"
-            fs = self.volumes.get(volume_id)
+            fs = self.volumes.get_volume(volume_id)
             result: t.List[str] = []
             for x in fs.filter_entries_list(pattern):
                 tmp = add_slash(fs, x.basename)
@@ -177,7 +177,7 @@ class Shell:
         """
         Update the command prompt
         """
-        self.prompt = "[%s] " % self.volumes.get_pwd()
+        self.prompt = f"[{self.volumes.get_pwd()}] "
 
     def cmd_loop(self) -> None:
         """

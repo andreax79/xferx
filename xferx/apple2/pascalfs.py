@@ -565,7 +565,7 @@ class PascalFilesystem(AbstractAppleDiskFilesystem):
             self.dev.prodos_order = True
             volume_dir = VolumeDirectory.read(self)
             if not volume_dir.volume_name:
-                raise OSError(errno.EIO, os.strerror(errno.EIO))
+                raise OSError(errno.EIO, "Invalid volume name")
         self.volume_name = volume_dir.volume_name
         return self
 
