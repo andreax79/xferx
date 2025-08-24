@@ -25,6 +25,7 @@ import math
 import os
 import stat
 import sys
+import threading
 import typing as t
 from datetime import date, datetime
 
@@ -60,6 +61,7 @@ class NativeFile(AbstractFile):
             self.f = open(filename, mode="rb")
             self.readonly = True
         self.size = os.path.getsize(filename)
+        self._lock = threading.Lock()
 
     def read_block(
         self,
@@ -70,13 +72,14 @@ class NativeFile(AbstractFile):
         Read block(s) of data from the file
         """
         if number_of_blocks == READ_FILE_FULL:
-            self.f.seek(0)  # not thread safe...
-            return self.f.read()
-        elif block_number < 0 or number_of_blocks < 0:
+            with self._lock:
+                self.f.seek(0)
+                return self.f.read()
+        if block_number < 0 or number_of_blocks < 0:
             raise OSError(errno.EIO, os.strerror(errno.EIO))
-        else:
+        with self._lock:
             position = block_number * BLOCK_SIZE
-            self.f.seek(position)  # not thread safe...
+            self.f.seek(position)
             return self.f.read(number_of_blocks * BLOCK_SIZE)
 
     def write_block(
@@ -90,11 +93,12 @@ class NativeFile(AbstractFile):
         """
         if block_number < 0 or number_of_blocks < 0:
             raise OSError(errno.EIO, os.strerror(errno.EIO))
-        elif self.readonly:
+        if self.readonly:
             raise OSError(errno.EROFS, os.strerror(errno.EROFS))
-        else:
-            self.f.seek(block_number * BLOCK_SIZE)  # not thread safe...
+        with self._lock:
+            self.f.seek(block_number * BLOCK_SIZE)
             self.f.write(buffer[0 : number_of_blocks * BLOCK_SIZE])
+            self.f.flush()
 
     def truncate(self, size: t.Optional[int] = None) -> None:
         """
@@ -342,6 +346,7 @@ class NativeFilesystem(AbstractFilesystem):
             fullname = os.path.join(self.pwd, fullname)
         if length_bytes is None:
             length_bytes = number_of_blocks * BLOCK_SIZE
+        print(f"Creating file {fullname} with length {length_bytes} bytes {number_of_blocks} blocks")
         with open(fullname, "wb") as f:
             f.truncate(length_bytes)
         if creation_date:

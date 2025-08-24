@@ -254,7 +254,7 @@ class Volumes(object):
         except Exception as ex:
             if verbose:
                 traceback.print_exc()
-            message = getattr(ex, "strerror") or str(ex)
+            message = getattr(ex, "strerror", "") or str(ex)
             raise Exception(f"?{cmd}-F-Error mounting {path} to {logical}: {message}\n")
 
     def dismount(self, volume_id: str, cmd: str = "DISMOUNT") -> None:

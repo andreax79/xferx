@@ -287,7 +287,7 @@ CREATE          Creates files or directories
         See the SHOW TYPES command for a list of filesystems.
 
   EXAMPLES
-        CREATE NEW.DSK /ALLOCATE:200
+        CREATE /ALLOCATE:200 NEW.DSK
 
     """
     # fmt: on

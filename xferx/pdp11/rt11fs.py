@@ -18,7 +18,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-import copy
 import errno
 import io
 import math
@@ -30,6 +29,7 @@ from datetime import date
 
 from ..abstract import AbstractDirectoryEntry, AbstractFile
 from ..commons import (
+    ASCII,
     BLOCK_SIZE,
     READ_FILE_FULL,
     bytes_to_word,
@@ -62,12 +62,13 @@ DIRECTORY_SEGMENT_SIZE = BLOCK_SIZE * 2
 PARTITION_FULLNAME_RE = re.compile(r"^\[(\d+)\](.*)$")
 MAX_PARTITION_SIZE = (1 < 16) - 1
 
-E_TENT = 1  # Tentative file
-E_MPTY = 2  # Empty area
-E_PERM = 4  # Permanent file
-E_EOS = 8  # End-of-segment marker
-E_READ = 64  # Protected from write
-E_PROT = 128  # Protected permanent file
+E_TENT = 0o000400  # Tentative file
+E_MPTY = 0o001000  # Empty area
+E_PERM = 0o002000  # Permanent file
+E_EOS = 0o004000  # End-of-segment marker
+E_READ = 0o040000  # Protected from write
+E_PROT = 0o100000  # Protected permanent file
+E_PRE = 0o000020  # Prefix block indicator
 
 
 def date_to_rt11(val: t.Optional[date]) -> int:
@@ -166,7 +167,7 @@ class RT11File(AbstractFile):
             raise OSError(errno.EIO, os.strerror(errno.EIO))
         if block_number + number_of_blocks > self.entry.length:
             number_of_blocks = self.entry.length - block_number
-        return self.entry.segment.partition.read_block(
+        return self.entry.partition.read_block(
             self.entry.file_position + block_number,
             number_of_blocks,
         )
@@ -187,7 +188,7 @@ class RT11File(AbstractFile):
             or block_number + number_of_blocks > self.entry.length
         ):
             raise OSError(errno.EIO, os.strerror(errno.EIO))
-        self.entry.segment.partition.write_block(
+        self.entry.partition.write_block(
             buffer,
             self.entry.file_position + block_number,
             number_of_blocks,
@@ -217,9 +218,8 @@ class RT11File(AbstractFile):
 
 class RT11DirectoryEntry(AbstractDirectoryEntry):
 
-    segment: "RT11Segment"
-    type: int = 0
-    clazz: int = 0
+    partition: "RT11Partition"
+    status: int = 0
     filename: str = ""
     extension: str = ""
     length: int = 0
@@ -227,23 +227,22 @@ class RT11DirectoryEntry(AbstractDirectoryEntry):
     channel: int = 0
     raw_creation_date: int = 0
     extra_bytes: bytes = b''
-    file_position: int = 0
+    file_position: int = 0  # block number
 
-    def __init__(self, segment: "RT11Segment"):
-        self.segment = segment
+    def __init__(self, partition: "RT11Partition"):
+        self.partition = partition
 
     @classmethod
     def read(
         cls,
-        segment: "RT11Segment",
+        partition: "RT11Partition",
         buffer: bytes,
         position: int,
         file_position: int,
         extra_bytes: int,
     ) -> "RT11DirectoryEntry":
-        self = cls(segment)
-        self.type = buffer[position]
-        self.clazz = buffer[position + 1]
+        self = cls(partition)
+        self.status = bytes_to_word(buffer, position)
         self.filename = rad2asc(buffer, position + 2) + rad2asc(buffer, position + 4)  # 6 RAD50 chars
         self.extension = rad2asc(buffer, position + 6)  # 3 RAD50 chars
         self.length = bytes_to_word(buffer, position + 8)  # length in blocks
@@ -254,11 +253,24 @@ class RT11DirectoryEntry(AbstractDirectoryEntry):
         self.file_position = file_position
         return self
 
+    @classmethod
+    def copy(cls, entry: "RT11DirectoryEntry") -> "RT11DirectoryEntry":
+        self = cls(entry.partition)
+        self.status = entry.status
+        self.filename = entry.filename
+        self.extension = entry.extension
+        self.length = entry.length
+        self.job = entry.job
+        self.channel = entry.channel
+        self.raw_creation_date = entry.raw_creation_date
+        self.extra_bytes = entry.extra_bytes
+        self.file_position = entry.file_position
+        return self
+
     def to_bytes(self) -> bytes:
         out = bytearray()
         assert self.length >= 0, "Length must be non-negative"
-        out.append(self.type)
-        out.append(self.clazz)
+        out.extend(word_to_bytes(self.status))
         out.extend(asc2rad(self.filename[0:3]))
         out.extend(asc2rad(self.filename[3:6]))
         out.extend(asc2rad(self.extension))
@@ -271,27 +283,52 @@ class RT11DirectoryEntry(AbstractDirectoryEntry):
 
     @property
     def is_empty(self) -> bool:
-        return self.clazz & E_MPTY == E_MPTY
+        """
+        Empty area
+        """
+        return self.status & E_MPTY == E_MPTY
 
     @property
     def is_tentative(self) -> bool:
-        return self.clazz & E_TENT == E_TENT
+        """
+        Tentative file
+        """
+        return self.status & E_TENT == E_TENT
 
     @property
     def is_permanent(self) -> bool:
-        return self.clazz & E_PERM == E_PERM
+        """
+        Permanent file
+        """
+        return self.status & E_PERM == E_PERM
 
     @property
     def is_end_of_segment(self) -> bool:
-        return self.clazz & E_EOS == E_EOS
+        """
+        End-of-segment marker
+        """
+        return self.status & E_EOS == E_EOS
 
     @property
-    def is_protected_by_monitor(self) -> bool:
-        return self.clazz & E_READ == E_READ
+    def is_read_only(self) -> bool:
+        """
+        Protected from write
+        """
+        return self.status & E_READ == E_READ
 
     @property
-    def is_protected_permanent(self) -> bool:
-        return self.clazz & E_PROT == E_PROT
+    def is_delete_protected(self) -> bool:
+        """
+        Protected from delete
+        """
+        return self.status & E_PROT == E_PROT
+
+    @property
+    def has_prefix_block(self) -> bool:
+        """
+        Indicates the presence of at least one prefix block in this file.
+        """
+        return self.status & E_PRE == E_PRE
 
     @property
     def fullname(self) -> str:
@@ -323,21 +360,67 @@ class RT11DirectoryEntry(AbstractDirectoryEntry):
     def creation_date(self) -> t.Optional[date]:
         return rt11_to_date(self.raw_creation_date)
 
+    @property
+    def description(self) -> str:
+        desc = []
+        if self.is_permanent:
+            desc.append("Permanent")
+        if self.is_tentative:
+            desc.append("Tentative")
+        if self.is_empty:
+            desc.append("Empty area")
+        if self.is_end_of_segment:
+            desc.append("End-of-segment")
+        if self.is_read_only:
+            desc.append("Read-only")
+        if self.is_delete_protected:
+            desc.append("Protected")
+        if self.status & E_PRE == E_PRE:
+            desc.append("Prefix block")
+        return ",".join(desc)
+
+    def _get_entry_segment(self) -> t.Tuple["RT11Segment", "RT11DirectoryEntry"]:
+        """
+        Read the segment containing this entry
+        """
+        for segment in self.partition.read_dir_segments():
+            for entry in segment.entries_list:
+                if entry.file_position == self.file_position:
+                    return segment, entry
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), self.fullname)
+
     def delete(self) -> bool:
         """
         Delete the file
         """
+        try:
+            segment, entry = self._get_entry_segment()
+        except FileNotFoundError:
+            return False
         # unset E_PROT,E_TENT,E_READ,E_PROT flasgs, set E_MPTY flag
-        self.clazz = self.clazz & ~E_PERM & ~E_TENT & ~E_READ & ~E_PROT | E_MPTY
-        self.segment.compact()
-        self.segment.write()
+        entry.status = entry.status & ~E_PERM & ~E_TENT & ~E_READ & ~E_PROT | E_MPTY
+        self.status = entry.status
+        segment.compact()
+        segment.write()
         return True
 
     def write(self) -> bool:
         """
         Write the directory entry
         """
-        self.segment.write()
+        try:
+            segment, entry = self._get_entry_segment()
+        except FileNotFoundError:
+            return False
+        entry.status = self.status
+        entry.filename = self.filename
+        entry.extension = self.extension
+        entry.length = self.length
+        entry.job = self.job
+        entry.channel = self.channel
+        entry.raw_creation_date = self.raw_creation_date
+        entry.extra_bytes = self.extra_bytes
+        segment.write()
         return True
 
     def open(self, file_mode: t.Optional[str] = None) -> RT11File:
@@ -346,12 +429,22 @@ class RT11DirectoryEntry(AbstractDirectoryEntry):
         """
         return RT11File(self)
 
+    def read_bytes(self, file_mode: t.Optional[str] = None) -> bytes:
+        """
+        Get the content of the file
+        """
+        data = super().read_bytes()
+        if file_mode == ASCII:
+            data = data.rstrip(b"\0")
+        return data
+
     def __str__(self) -> str:
+        length = str(self.length) if not self.is_end_of_segment else "-"
         return (
             f"{self.fullname:<11} "
             f"{self.creation_date or '          '} "
-            f"{self.length:>6} {self.type:5o} {self.clazz:5o} "
-            f"{self.job:3d} {self.channel:3d} {self.file_position:6d}"
+            f"{length:>6}  {self.status:6o}  "
+            f"{self.job:3d} {self.channel:3d} {self.file_position:6d}  {self.description}"
         )
 
     def __repr__(self) -> str:
@@ -374,6 +467,7 @@ class RT11Segment(object):
     +--------------+
     """
 
+    partition: "RT11Partition"
     # Block number of this directory segment
     block_number = 0
     # Total number of segments in this directory (1-31)
@@ -389,10 +483,11 @@ class RT11Segment(object):
     # Max directory entries
     max_entries = 0
     # Directory entries
-    entries_list: t.List["RT11DirectoryEntry"] = []
+    entries_list: t.List["RT11DirectoryEntry"]
 
     def __init__(self, partition: "RT11Partition"):
         self.partition = partition
+        self.entries_list = []
 
     @classmethod
     def read(cls, partition: "RT11Partition", block_number: int) -> "RT11Segment":
@@ -407,13 +502,12 @@ class RT11Segment(object):
         self.highest_segment = bytes_to_word(t, 4)
         self.extra_bytes = bytes_to_word(t, 6)
         self.data_block_number = bytes_to_word(t, 8)
-        self.entries_list = []
 
         file_position = self.data_block_number
         dir_entry_size = DIR_ENTRY_SIZE + self.extra_bytes
         self.max_entries = (DIRECTORY_SEGMENT_SIZE - DIRECTORY_SEGMENT_HEADER_SIZE) // dir_entry_size
         for position in range(DIRECTORY_SEGMENT_HEADER_SIZE, DIRECTORY_SEGMENT_SIZE - dir_entry_size, dir_entry_size):
-            dir_entry = RT11DirectoryEntry.read(self, t, position, file_position, self.extra_bytes)
+            dir_entry = RT11DirectoryEntry.read(self.partition, t, position, file_position, self.extra_bytes)
             file_position = file_position + dir_entry.length
             self.entries_list.append(dir_entry)
             if dir_entry.is_end_of_segment:
@@ -457,21 +551,8 @@ class RT11Segment(object):
             else:
                 prev_empty_entry.length = prev_empty_entry.length + entry.length
                 if entry.is_end_of_segment:
-                    prev_empty_entry.clazz = prev_empty_entry.clazz | E_EOS
+                    prev_empty_entry.status = prev_empty_entry.status | E_EOS
         self.entries_list = new_entries_list
-
-    def insert_entry_after(self, entry: "RT11DirectoryEntry", entry_number: int, length: int) -> None:
-        if entry.length == length:
-            return
-        new_entry = copy.copy(entry)  # new empty space entry
-        if entry.is_end_of_segment:
-            new_entry.clazz = E_EOS
-            entry.clazz = entry.clazz - E_EOS
-        new_entry.length = entry.length - length
-        new_entry.file_position = entry.file_position + length
-        entry.length = length
-        self.entries_list.insert(entry_number + 1, new_entry)
-        entry.segment.write()
 
     def __str__(self) -> str:
         buf = io.StringIO()
@@ -482,8 +563,8 @@ class RT11Segment(object):
         buf.write(f"Highest segment:            {self.highest_segment}\n")
         buf.write(f"Max entries:                {self.max_entries}\n")
         buf.write(f"Data block:                 {self.data_block_number}\n")
-        buf.write("\nNum  File        Date       Length  Type Class Job Chn  Block")
-        buf.write("\n---  ----        ----       ------  ---- ----- --- ---  -----\n")
+        buf.write("\nNum  File        Date       Length  Status  Job Chn  Block")
+        buf.write("\n---  ----        ----       ------  ------  --- ---  -----\n")
         for i, x in enumerate(self.entries_list):
             buf.write(f"{i:02d}#  {x}\n")
         return buf.getvalue()
@@ -605,49 +686,82 @@ class RT11Partition:
                 return entry
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), fullname)
 
-    def split_segment(self, entry: RT11DirectoryEntry) -> bool:
-        # entry is the last entry of the old_segment, new new segment will contain all the entries after that
-        old_segment = entry.segment
+    def _split_segment(
+        self,
+        current_segment: "RT11Segment",
+        entry: RT11DirectoryEntry,
+        entry_number: int,
+    ) -> t.Tuple["RT11Segment", "RT11DirectoryEntry", int]:
+        # entry is the last entry of the current_segment,
+        # new new segment will contain all the entries after that
+        status_bak = entry.status  # save the status
+
         # find the new segment number
         segments = list(self.read_dir_segments())
         first_segment = segments[0]
         sn = [x.block_number for x in segments]
         p = 0
-        segment_number = None
+        segment_number_block_number = None
         for i in range(self.dir_segment, self.dir_segment + (first_segment.num_of_segments * 2), 2):
             p = p + 1
             if i not in sn:
-                segment_number = i
+                segment_number_block_number = i
                 break
-        if segment_number is None:
-            return False
+        if segment_number_block_number is None:
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+
+        # set the next segment of the current segment
+        current_segment.next_logical_dir_segment = (segment_number_block_number - self.dir_segment) // 2 + 1
+        # mark the entry as end of segment
+        entry.status = E_EOS
+        # write the current segment
+        current_segment.write()
+
+        # update the total num of segments
+        if first_segment.block_number == current_segment.block_number:
+            current_segment.num_of_segments = len(segments)
+            current_segment.write()
+        else:
+            first_segment.num_of_segments = len(segments)
+            first_segment.write()
+
         # create the new segment
         segment = RT11Segment(self)
-        segment.block_number = segment_number
+        segment.block_number = segment_number_block_number
         segment.num_of_segments = first_segment.num_of_segments
-        segment.next_logical_dir_segment = old_segment.next_logical_dir_segment
+        segment.next_logical_dir_segment = 0
         segment.highest_segment = 1
         segment.extra_bytes = segments[0].extra_bytes
         segment.data_block_number = entry.file_position + entry.length
-        # set the next segment of the last segment
-        old_segment.next_logical_dir_segment = (segment.block_number - self.dir_segment) // 2 + 1
-        entry.clazz = entry.clazz | E_EOS  # entry is the last entry of the old segment
-        first_segment.num_of_segments = len(segments)  # update the total num of segments
-        first_segment.write()
+        segment.entries_list = []
 
-        entry_position = -1
-        for i, e in enumerate(old_segment.entries_list):
-            if entry == e:
-                entry_position = i
-        if entry_position == 1:
-            return False
-        segment.entries_list = old_segment.entries_list[entry_position + 1 :]
-        old_segment.entries_list = old_segment.entries_list[: entry_position + 1]
-        old_segment.write()
-        segment.data_block_number = entry.file_position + entry.length
-        entry.clazz = entry.clazz | E_EOS
+        # create the new entry list
+        for i, e in enumerate(current_segment.entries_list[entry_number:]):
+            entry = RT11DirectoryEntry.copy(e)
+            if i == 0:
+                entry.status = status_bak
+            segment.entries_list.append(entry)
         segment.write()
-        return True
+
+        return segment, segment.entries_list[0], 0
+
+    def _search_empty_entry(self, length: int, fullname: str) -> t.Tuple["RT11Segment", "RT11DirectoryEntry", int]:
+        """
+        Searches for an empty area that is large enough to accommodate the new file
+        """
+        entry: t.Optional[RT11DirectoryEntry] = None
+        entry_number: int = -1
+        for segment in self.read_dir_segments():
+            for i, e in enumerate(segment.entries_list):
+                if e.is_empty and e.length >= length:
+                    if entry is None or entry.length > e.length:
+                        entry = e
+                        entry_number = i
+                        if entry.length == length:
+                            return segment, entry, entry_number
+        if entry is None:
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), fullname)
+        return segment, entry, entry_number
 
     def allocate_space(
         self,
@@ -658,25 +772,20 @@ class RT11Partition:
         """
         Allocate space for a new file
         """
-        entry: t.Optional[RT11DirectoryEntry] = None
-        entry_number: int = -1
-        # Search for an empty entry to be split
-        for segment in self.read_dir_segments():
-            for i, e in enumerate(segment.entries_list):
-                if e.is_empty and e.length >= length:
-                    if entry is None or entry.length > e.length:
-                        entry = e
-                        entry_number = i
-                        if entry.length == length:
-                            break
-        if entry is None:
-            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), fullname)
-        # If the entry length is equal to the requested length, don't create the new empty entity
+        # Search for an empty entry
+        segment, entry, entry_number = self._search_empty_entry(length, fullname)
         if entry.length != length:
-            if len(entry.segment.entries_list) >= entry.segment.max_entries:
-                if not self.split_segment(entry):
-                    raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), fullname)
-            entry.segment.insert_entry_after(entry, entry_number, length)
+            if len(segment.entries_list) >= segment.max_entries:
+                segment, entry, entry_number = self._split_segment(segment, entry, entry_number)
+            # If the entry length is not equal to the requested length,
+            # create a new empty space entry after the entry
+            empty_entry = RT11DirectoryEntry(self)
+            empty_entry.filename = entry.filename
+            empty_entry.extension = entry.extension
+            empty_entry.length = entry.length - length
+            empty_entry.file_position = entry.file_position + length
+            empty_entry.status = E_MPTY
+            segment.entries_list.insert(entry_number + 1, empty_entry)
         # Fill the entry
         tmp = os.path.splitext(fullname.upper())
         entry.filename = tmp[0]
@@ -684,13 +793,10 @@ class RT11Partition:
         entry.raw_creation_date = date_to_rt11(creation_date)
         entry.job = 0
         entry.channel = 0
-        if entry.is_end_of_segment:
-            entry.clazz = E_PERM | E_EOS
-        else:
-            entry.clazz = E_PERM
+        entry.status = E_PERM
         entry.length = length
         # Write the segment
-        entry.segment.write()
+        segment.write()
         return entry
 
     @classmethod
@@ -727,7 +833,7 @@ class RT11Partition:
         self.owner = ""
         self.sys_id = "DECRT11A"
         self.write_home()
-        # Write the directory segment
+        # Create the directory segment
         segment = RT11Segment(self)
         segment.block_number = self.dir_segment
         segment.num_of_segments = num_of_segments
@@ -735,21 +841,32 @@ class RT11Partition:
         segment.highest_segment = 1
         segment.extra_bytes = 0
         segment.data_block_number = self.dir_segment + (num_of_segments * 2)
-        # first entry
-        dir_entry = RT11DirectoryEntry(segment)
+        # first entry (empty area)
+        dir_entry = RT11DirectoryEntry(self)
         dir_entry.file_position = segment.data_block_number
         dir_entry.length = partition_size - dir_entry.file_position
-        dir_entry.clazz = 2
+        dir_entry.status = E_MPTY
         dir_entry.filename = "EMPTY"
         dir_entry.extension = "FIL"
         segment.entries_list.append(dir_entry)
-        # second entry
-        dir_entry = RT11DirectoryEntry(segment)
+        # second entry (end-of-segment)
+        dir_entry = RT11DirectoryEntry(self)
         dir_entry.file_position = partition_size
-        dir_entry.clazz = 8
+        dir_entry.status = E_EOS
         segment.entries_list.append(dir_entry)
         segment.write()
         return self
+
+    def free(self) -> int:
+        """
+        Get the number of free blocks
+        """
+        unused = 0
+        for segment in self.read_dir_segments():
+            for x in segment.entries_list:
+                if x.is_empty or x.is_tentative:
+                    unused = unused + x.length
+        return unused
 
     def examine(self) -> str:
         buf = io.StringIO()
@@ -925,8 +1042,8 @@ class RT11Filesystem(AbstractRXBlockFilesystem):
                     not x.is_empty
                     and not x.is_tentative
                     and not x.is_permanent
-                    and not x.is_protected_permanent
-                    and not x.is_protected_by_monitor
+                    and not x.is_delete_protected
+                    and not x.is_read_only
                 ):
                     continue
                 i = i + 1
@@ -945,9 +1062,9 @@ class RT11Filesystem(AbstractRXBlockFilesystem):
                 if x.is_permanent:
                     files = files + 1
                     blocks = blocks + x.length
-                if x.is_protected_permanent:
+                if x.is_delete_protected:
                     attr = "P"
-                elif x.is_protected_by_monitor:
+                elif x.is_read_only:
                     attr = "A"
                 else:
                     attr = " "

@@ -74,29 +74,51 @@ def test_rt11():
 
 
 def test_rt11_init():
+    disk = f"{DSK}.rt11_init.mo"
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /rt11 {DSK}", batch=True)
-    shell.onecmd(f"create /allocate:500 {DSK}.mo", batch=True)
-    shell.onecmd(f"init /rt11 {DSK}.mo", batch=True)
-    shell.onecmd(f"mount ou: /rt11 {DSK}.mo", batch=True)
+    shell.onecmd(f"create /allocate:800 {disk}", batch=True)
+    shell.onecmd(f"init /rt11 {disk}", batch=True)
+    shell.onecmd(f"mount ou: /rt11 {disk}", batch=True)
     shell.onecmd("dir ou:", batch=True)
-    shell.onecmd("copy/type:t t:*.txt ou:", batch=True)
-    fs = shell.volumes.get_volume('OU')
 
-    x1 = fs.read_bytes("50.txt")
-    x1 = x1.rstrip(b"\0")
+    fs = shell.volumes.get_volume('OU')
+    assert fs.get_partition(0).free() == 786
+
+    shell.onecmd("copy t:*.txt ou:", batch=True)
+
+    x1 = shell.volumes.read_text("ou:50.txt")
     assert len(x1) == 2200
     for i in range(0, 50):
-        assert f"{i:5d} ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890".encode("ascii") in x1
+        assert f"{i:5d} ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890" in x1
 
+    # Delete
     with pytest.raises(Exception):
         shell.onecmd("delete ou:aaa", batch=True)
     shell.onecmd("delete ou:50.txt", batch=True)
-    fs.read_bytes("10.txt")
     with pytest.raises(FileNotFoundError):
-        fs.read_bytes("50.txt")
+        shell.volumes.read_bytes("ou:50.txt")
+
+    content = b"\0" * 1024
+    for i in range(0, 80):
+        shell.volumes.write_bytes(f"ou:{i}.dat", content)
+
+    shell.onecmd("delete ou:30.dat", batch=True)
+    shell.onecmd("delete ou:31.dat", batch=True)
+
+    content = b"\0" * 512
+    for i in range(80, 90):
+        shell.volumes.write_bytes(f"ou:{i}.dat", content)
+
+    x2 = shell.volumes.read_bytes("ou:10.txt")
+    assert len(x2) == 512
+    with shell.volumes.open_file("ou:10.txt") as f:
+        print(f.entry)
+        pass
 
     # Test init mounted volume
     shell.onecmd("init ou:", batch=True)
     with pytest.raises(Exception):
-        fs.read_bytes("10.txt")
+        shell.volumes.read_bytes("ou:10.txt")
+
+    shell.onecmd(f"delete {disk}", batch=True)
