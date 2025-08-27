@@ -12,7 +12,9 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent"
 ]
-dependencies = []
+dependencies = [
+    'pyreadline3 ; platform_system == "Windows"',
+]
 dynamic = ["version"]
 
 [build-system]

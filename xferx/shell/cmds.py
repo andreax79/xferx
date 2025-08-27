@@ -34,6 +34,7 @@ from .commons import (
     copy_file,
     extract_options,
     get_int_option,
+    split_arguments,
 )
 
 __all__ = ["cmds"]
@@ -92,7 +93,7 @@ TYPE            Outputs files to the terminal
     # fmt: on
     if not args:
         line = ask("File? ")
-        args = shlex.split(line)
+        args = split_arguments(line)
     match = False
     for arg in args:
         for entry in context.volumes.filter_entries_list(pattern=arg, cmd="TYPE"):
@@ -192,7 +193,7 @@ DELETE          Removes files from a volume
     # fmt: on
     if not args:
         line = ask("Files? ")
-        args = shlex.split(line)
+        args = split_arguments(line)
     for arg in args:
         match = False
         for x in context.volumes.filter_entries_list(

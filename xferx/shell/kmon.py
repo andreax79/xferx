@@ -19,7 +19,6 @@
 # THE SOFTWARE.
 
 import os
-import shlex
 import sys
 import traceback
 import typing as t
@@ -28,7 +27,13 @@ from ..commons import splitdrive
 from ..volumes import Volumes
 from .batch import BatchContext
 from .cmds import cmds
-from .commons import CommandError, ShellContext, add_slash, split_command_line
+from .commons import (
+    CommandError,
+    ShellContext,
+    add_slash,
+    split_arguments,
+    split_command_line,
+)
 
 try:
     import readline
@@ -223,7 +228,7 @@ class Shell:
                 if context is None:
                     context = ShellContext(self)
                 assert isinstance(context, ShellContext)
-                args = shlex.split(arg) if arg else []
+                args = split_arguments(arg)
                 func(context, args)
         except KeyboardInterrupt:
             sys.stdout.write("\n")

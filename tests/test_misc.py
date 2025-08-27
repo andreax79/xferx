@@ -1,10 +1,9 @@
-import shlex
-
 import pytest
 
 from xferx.commons import bytes_to_word, word_to_bytes
 from xferx.pdp11.rad50 import asc2rad, rad2asc
 from xferx.shell.commons import PartialMatching, extract_options
+from xferx.shell.kmon import split_arguments
 
 
 def test_bytes_to_word():
@@ -54,6 +53,106 @@ def test_asc2rad():
     assert asc2rad(":$%") == b"\x54\xfe"
 
 
+def test_split_argument_basic():
+    # Test parsing of basic unquoted arguments
+    result = split_arguments("ls -la /home", platform='linux')
+    expected = ["ls", "-la", "/home"]
+    assert result == expected
+
+    # Test parsing of empty string
+    result = split_arguments("", platform='linux')
+    expected = []
+    assert result == expected
+
+    # Test parsing of string with only whitespace
+    result = split_arguments("   \t  ", platform='linux')
+    expected = []
+    assert result == expected
+
+    # Test parsing of single argument
+    result = split_arguments("hello", platform='linux')
+    expected = ["hello"]
+    assert result == expected
+
+    # Test parsing with multiple spaces between arguments
+    result = split_arguments("arg1    arg2     arg3", platform='linux')
+    expected = ["arg1", "arg2", "arg3"]
+    assert result == expected
+
+
+def test_split_argument_posix():
+    # Test basic quoteing scenarios
+    for input_cmd, expected in [
+        ('echo "hello world"', ["echo", "hello world"]),
+        ("echo 'hello world'", ["echo", "hello world"]),
+        ('echo "" \'\'', ["echo", "", ""]),
+        ('echo "double" \'single\' unquoted', ["echo", "double", "single", "unquoted"]),
+    ]:
+        result = split_arguments(input_cmd, platform='linux')
+        assert result == expected
+
+    # Test escaped quotes within double quotes
+    result = split_arguments(r'echo "Say \"hello\""', platform='linux')
+    expected = ["echo", 'Say "hello"']
+    assert result == expected
+
+    # Test escaped backslashes within double quotes
+    result = split_arguments(r'echo "path\\to\\file"', platform='linux')
+    expected = ["echo", r"path\to\file"]
+    assert result == expected
+
+    # Test that single quotes preserve all characters literally
+    result = split_arguments("echo 'no \"escaping\" in single quotes'", platform='linux')
+    expected = ["echo", 'no "escaping" in single quotes']
+    assert result == expected
+
+    # Test escaped characters outside of quotes
+    result = split_arguments(r"echo hello\ world", platform='linux')
+    expected = ["echo", "hello world"]
+    assert result == expected
+
+    # Test concatenated quoted and unquoted parts
+    result = split_arguments('echo "hello"world\'test\'', platform='linux')
+    expected = ["echo", "helloworldtest"]
+    assert result == expected
+
+    # Test parsing a complex git command
+    cmd = 'git commit -m "Fix bug in parser" --author="John Doe <john@example.com>"'
+    result = split_arguments(cmd, platform='linux')
+    expected = ["git", "commit", "-m", "Fix bug in parser", "--author=John Doe <john@example.com>"]
+    assert result == expected
+
+    # Test parsing a find command with escaped characters
+    cmd = r"find . -name '*.py' -exec grep -l 'def test_' {} \;"
+    result = split_arguments(cmd, platform='linux')
+    expected = ["find", ".", "-name", "*.py", "-exec", "grep", "-l", "def test_", "{}", ";"]
+    assert result == expected
+
+    # Test parsing a Docker run command
+    cmd = 'docker run -it --rm -v "/host/path:/container/path" ubuntu:latest bash'
+    result = split_arguments(cmd, platform='linux')
+    expected = ["docker", "run", "-it", "--rm", "-v", "/host/path:/container/path", "ubuntu:latest", "bash"]
+    assert result == expected
+
+    # Test parsing command with environment variable assignment
+    cmd = 'ENV_VAR="some value" python script.py'
+    result = split_arguments(cmd, platform='linux')
+    expected = ["ENV_VAR=some value", "python", "script.py"]
+    assert result == expected
+
+    # Test deeply nested quoting scenarios
+    cmd = r'echo "outer \"middle \\\"inner\\\" middle\" outer"'
+    result = split_arguments(cmd, platform='linux')
+    expected = ["echo", r'outer "middle \"inner\" middle" outer']
+    assert result == expected
+
+    # Test handling of Unicode characters
+    cmd = 'echo "Hello 世界" café'
+    result = split_arguments(cmd, platform='linux')
+    expected = ["echo", "Hello 世界", "café"]
+    assert result == expected
+
+
 def test_partial_matching():
     x = PartialMatching()
     x.add("APP_LE")
@@ -87,11 +186,33 @@ def test_partial_matching():
     assert x.get("") is None
 
 
+def test_split_argument_windows():
+    # Test simple double-quoted strings on Windows
+    result = split_arguments('echo "hello world"', platform='win32')
+    expected = ["echo", "hello world"]
+    assert result == expected
+
+    # Test escaped quotes in Windows style
+    result = split_arguments(r'echo "Say \"hello\""', platform='win32')
+    expected = ["echo", 'Say "hello"']
+    assert result == expected
+
+    # Test Windows-style double quotes within double quotes
+    result = split_arguments('echo "Say ""hello"""', platform='win32')
+    expected = ["echo", 'Say "hello"']
+    assert result == expected
+
+    # Test that single quotes are treated literally on Windows
+    result = split_arguments("echo 'hello world'", platform='win32')
+    expected = ["echo", "'hello", "world'"]
+    assert result == expected
+
+
 def test_extract_options():
     line = "command /a /b /c:1 /d:abc /flag value1 value2"
     options = ("/a", "/b", "/c", "/d", "/flag")
 
-    args, opts = extract_options(shlex.split(line), *options)
+    args, opts = extract_options(split_arguments(line), *options)
     assert args == ["command", "value1", "value2"]
     assert opts == {"a": True, "b": True, "c": "1", "d": "abc", "flag": True}
 
@@ -100,7 +221,7 @@ def test_extract_options_with_no_options():
     line = "command value1 value2"
     options = ("/a", "/b", "/flag")
 
-    args, opts = extract_options(shlex.split(line), *options)
+    args, opts = extract_options(split_arguments(line), *options)
     assert args == ["command", "value1", "value2"]
     assert opts == {}
 
@@ -109,7 +230,7 @@ def test_extract_options_with_some_options():
     line = "command /a value1 /flag value2"
     options = ("/a", "/b", "/flag")
 
-    args, opts = extract_options(shlex.split(line), *options)
+    args, opts = extract_options(split_arguments(line), *options)
     assert args == ["command", "value1", "value2"]
     assert opts == {"a": True, "flag": True}
 
@@ -118,7 +239,7 @@ def test_extract_options_case_insensitive():
     line = "command /A /B /FLAG value1 value2"
     options = ("/a", "/b", "/flag")
 
-    args, opts = extract_options(shlex.split(line), *options)
+    args, opts = extract_options(split_arguments(line), *options)
     assert args == ["command", "value1", "value2"]
     assert opts == {"a": True, "b": True, "flag": True}
 
@@ -127,6 +248,6 @@ def test_extract_options_with_unexpected_options():
     line = "command /x /y value1 value2"
     options = ("/a", "/b", "/flag")
 
-    args, opts = extract_options(shlex.split(line), *options)
+    args, opts = extract_options(split_arguments(line), *options)
     assert args == ["command", "/x", "/y", "value1", "value2"]
     assert opts == {}

@@ -18,7 +18,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+import re
 import string
+import sys
 import traceback
 import typing as t
 
@@ -39,10 +41,13 @@ __all__ = [
     "copy_file",
     "extract_options",
     "get_int_option",
+    "split_arguments",
     "split_command_line",
 ]
 
 IDENTCHARS = string.ascii_letters + string.digits + "@_"
+SPLIT_WIN32_RE = re.compile(r'"((?:""|\\["\\]|[^"])*)"?()|(\\\\(?=\\*")|\\")|([^\s"&|<>]+)|(\s+)|(.)')
+SPLIT_POSIX_RE = re.compile(r'''"((?:\\["\\]|[^"])*)"|'([^']*)'|(\\.)|([^\s'"\\&|<>]+)|(\s+)|(.)''')
 
 
 class CommandError(Exception):
@@ -157,6 +162,63 @@ def split_command_line(line: str) -> t.Tuple[t.Optional[str], t.Optional[str]]:
         i = i + 1
     cmd, arg = line[:i], line[i:].strip()
     return cmd.upper(), arg
+
+
+def split_arguments(line: t.Optional[str], platform: t.Optional[str] = None) -> t.List[str]:
+    """
+    Split a command line into arguments, respecting quotes and escape sequences.
+    """
+    if not line:
+        return []
+
+    if platform is None:
+        platform = sys.platform
+    split_re = SPLIT_WIN32_RE if platform == 'win32' else SPLIT_POSIX_RE
+    result = []
+    current_argument = None  # Accumulates pieces of one argument as we parse
+
+    for (
+        double_quoted_string,
+        single_quoted_string,
+        escaped_char,
+        unquoted_word,
+        whitespace,
+        invalid_char,
+    ) in split_re.findall(line):
+        processed_word = None
+
+        if unquoted_word:
+            # Regular unquoted word
+            processed_word = unquoted_word
+        elif escaped_char:
+            # Escaped characters - remove the backslash
+            processed_word = escaped_char[1]
+        elif whitespace:
+            # Whitespace operators separate arguments
+            if current_argument is not None:
+                result.append(current_argument)
+            current_argument = None
+            continue
+        elif invalid_char:
+            # Found an invalid character that couldn't be parsed
+            raise ValueError("Invalid or incomplete shell string")
+        elif double_quoted_string:
+            # Handle double-quoted strings with escape sequences
+            processed_word = double_quoted_string.replace('\\"', '"').replace('\\\\', '\\')
+            if platform == 'win32':
+                processed_word = processed_word.replace('""', '"')
+        else:
+            # Handle single-quoted strings (may be empty)
+            processed_word = single_quoted_string
+
+        # Accumulate the processed word into the current argument
+        current_argument = (current_argument or '') + processed_word
+
+    # Add the final argument if we were building one
+    if current_argument is not None:
+        result.append(current_argument)
+
+    return result
 
 
 class PartialMatching:

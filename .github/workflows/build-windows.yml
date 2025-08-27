@@ -29,11 +29,10 @@ jobs:
       - name: List output folder
         run: |
           dir dist
-          dir dist/xferx
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: xferx-windows-exe
-          path: dist/xferx
+          path: dist
 

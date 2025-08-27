@@ -18,11 +18,11 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-import os
 import sys
 import traceback
 import typing as t
 from datetime import date
+from pathlib import Path
 
 from .abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
 from .apple2.appledosfs import AppleDOSFilesystem
@@ -112,12 +112,25 @@ class Volumes(object):
         if self._drive_letters():
             # windows
             for letter in self._drive_letters():
-                self.volumes[letter] = NativeFilesystem(f"{letter.upper()}:")
-                self.volumes[letter].target = letter
-                self.volumes[letter].source = letter
-            current_drive = os.getcwd().split(":")[0].upper()
+                # Add all available drive letters as native filesystems
+                try:
+                    self.volumes[letter] = NativeFilesystem(Path(f"{letter.upper()}:\\"))
+                    self.volumes[letter].target = letter
+                    self.volumes[letter].source = letter
+                except Exception:
+                    pass
+            cwd = Path.cwd()
+            is_unc = cwd.root == "\\"
+            if not is_unc:
+                current_drive = cwd.drive.split(":", 1)[0].upper()
+            else:
+                # Add a special volume for UNC paths
+                self.volumes["UNC"] = NativeFilesystem(cwd)
+                self.volumes["UNC"].source = cwd.anchor
+                self.volumes["UNC"].target = "UNC"
+                current_drive = "UNC"
             self.logical[SYSTEM_VOLUME] = current_drive
-            self.defdev = SYSTEM_VOLUME
+            self.defdev = current_drive
         else:
             # posix
             self.volumes["N"] = NativeFilesystem()
@@ -127,6 +140,9 @@ class Volumes(object):
             self.defdev = SYSTEM_VOLUME
 
     def _drive_letters(self) -> list[str]:
+        """
+        Get the list of available drive letters on Windows
+        """
         try:
             import string
             from ctypes import windll  # type: ignore

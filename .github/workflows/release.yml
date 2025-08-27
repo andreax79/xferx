@@ -100,11 +100,11 @@ jobs:
 
       - name: List output folder
         run: |
-          dir dist/xferx
+          dir dist
 
       - name: Upload Release Asset
         id: upload-release-asset
         uses: ncipollo/release-action@v1
         with:
           allowUpdates: true
-          artifacts: ./dist/xferx/xferx.exe
+          artifacts: ./dist/xferx.exe
