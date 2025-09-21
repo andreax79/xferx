@@ -1,10 +1,23 @@
-DECSYS-7
+DECsys-7
 ========
 
 `GA` - Go Ahead is the prompt for the user to enter a command.
 
 `CONTENTS!` prints the program names and the initial block numbers of
-any of the following file types: System, Library, and Working
+any of the following file types: System, Library, and Working(user)
+
+The DECsys-7 filesystem has two distinct directories:
+- Program Directory for system and user files
+- Library Directory for library subroutine files
+
+The system files are stored as contiguous files,
+while user and library files are stored as linked files.
+
+The users files can have three different "forks":
+- FORTRAN source code (FIODEC text)
+- Assembler source code (FIODEC text)
+- Relocatable binary code (18-bit words binary)
+The users files are stored as linked files.
 
 List System files:
 
@@ -64,7 +77,7 @@ XABSF., L 0142
 GA
 ```
 
-List Working files:
+List Working (user) files:
 For working files, CONTENTS! prints the starting block number of each fork
 (FORTRAN, Assembler, Binary).
 
@@ -79,6 +92,11 @@ TEST W 0146,0000,0000
 LONG W 0147,0000,0000
 GA
 ```
+
+Editor
+------
+
+The Editor operates on working (user) files only.
 
 ```
 EDIT!     -- Start the text editor
@@ -101,7 +119,8 @@ A,HELLO!    -- A for Assembler, filename
 ```
 
 - S - Read the next page (60 lines)
-- W - Type the page
+- W - Type (display) the page
+- U - Update (save) the file on the tape
 
 Create a new FORTRAN program:
 
@@ -115,6 +134,30 @@ enter text
 [BACKSPACE] -- 2 times - exit edit mode
 [BACKSPACE]
 K  -- exit editor
+
+
+Fortran Compiler
+----------------
+
+Compile a FORTRAN program:
+
+```
+COMPILE!
+ENABLE WRITE ON TWO,THREE
+USE W(AIT) OR G(O)
+G,HELLO!
+FOR02  10
+FORMAT (12H HELLO, WORLD)
+
+
+
+
+
+HELLO LOAD COMPLETE
+TYPE X CARRIAGE RETURN OR T
+```
+
+xferx --decsys decsys.dtp -c 'copy/ascii fact.f dl0:f,fact'
 
 
 https://vintagesoftwarefun.wordpress.com/2014/07/26/hello-world/

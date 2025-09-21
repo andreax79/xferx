@@ -102,6 +102,11 @@ class NativeFile(AbstractFile):
             position = block_number * BLOCK_SIZE
             self.f.seek(position)
             return self.f.read(number_of_blocks * BLOCK_SIZE)
+            # TODO check
+            # buffer = self.f.read(number_of_blocks * BLOCK_SIZE)
+            # if not buffer:
+            #     raise OSError(errno.EIO, os.strerror(errno.EIO))
+            # return buffer
 
     def write_block(
         self,
@@ -153,8 +158,10 @@ class NativeFile(AbstractFile):
 
 
 class NativeDirectoryEntry(AbstractDirectoryEntry):
+    fs: "NativeFilesystem"
 
-    def __init__(self, native_path: Path) -> None:
+    def __init__(self, fs: "NativeFilesystem", native_path: Path) -> None:
+        self.fs = fs
         self.native_path = native_path
         self.native_fullname = path_to_str(self.native_path)
         self.filename = self.native_path.stem
@@ -219,13 +226,13 @@ class NativeDirectoryEntry(AbstractDirectoryEntry):
         else:
             return None
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return int(math.ceil(self.get_size() / self.get_block_size()))
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -256,7 +263,7 @@ class NativeDirectoryEntry(AbstractDirectoryEntry):
         """
         raise OSError(errno.EINVAL, "Invalid operation on native filesystem")
 
-    def open(self, file_mode: t.Optional[str] = None) -> NativeFile:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> NativeFile:
         """
         Open a file
         """
@@ -299,7 +306,7 @@ class NativeFilesystem(AbstractFilesystem):
             current_path = self.base_path / self.pwd
             for path in current_path.iterdir():
                 try:
-                    yield NativeDirectoryEntry(path)
+                    yield NativeDirectoryEntry(self, path)
                 except:
                     pass
 
@@ -309,7 +316,7 @@ class NativeFilesystem(AbstractFilesystem):
             # Check if the pattern is a directory
             if pattern_path.is_dir():
                 if not expand:  # don't expand directories
-                    yield NativeDirectoryEntry(pattern_path)
+                    yield NativeDirectoryEntry(self, pattern_path)
                     return
                 pattern_path = pattern_path / "*"
 
@@ -318,7 +325,7 @@ class NativeFilesystem(AbstractFilesystem):
             glob_pattern = pattern_path.name
             for path in parent.glob(glob_pattern):
                 try:
-                    yield NativeDirectoryEntry(path)
+                    yield NativeDirectoryEntry(self, path)
                 except:
                     pass
 
@@ -326,29 +333,31 @@ class NativeFilesystem(AbstractFilesystem):
     def entries_list(self) -> t.Iterator["NativeDirectoryEntry"]:
         dir_path = Path(self.pwd)
         for path in dir_path.iterdir():
-            yield NativeDirectoryEntry(path)
+            yield NativeDirectoryEntry(self, path)
 
     def get_file_entry(self, fullname: str) -> "NativeDirectoryEntry":
         """
         Get the file entry for a given path
         """
         path = self.base_path / self.pwd / fullname
-        return NativeDirectoryEntry(path)
+        return NativeDirectoryEntry(self, path)
 
     def write_bytes(
         self,
         fullname: str,
         content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
+        fork: t.Optional[str] = None,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
         file_mode: t.Optional[str] = None,
     ) -> None:
         """
         Write content to a file
         """
+        metadata = metadata or {}
         path = self.base_path / self.pwd / fullname
         path.write_bytes(content)
 
+        creation_date: t.Optional[date] = metadata.get("creation_date")
         if creation_date:
             # Set the creation and modification date of the file
             ts = datetime.combine(creation_date, datetime.min.time()).timestamp()
@@ -357,40 +366,36 @@ class NativeFilesystem(AbstractFilesystem):
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
-        length_bytes: t.Optional[int] = None,  # optional length in bytes
+        size: int = 0,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
     ) -> NativeDirectoryEntry:
         """
         Create a new file with a given length
         """
+        metadata = metadata or {}
         path = self.base_path / self.pwd / fullname
 
-        if length_bytes is None:
-            length_bytes = number_of_blocks * BLOCK_SIZE
-        # print(f"Creating file {path} with length {length_bytes} bytes {number_of_blocks} blocks")
-
         with path.open("wb") as f:
-            f.truncate(length_bytes)
+            f.truncate(size)
 
+        creation_date: t.Optional[date] = metadata.get("creation_date")
         if creation_date:
             # Set the creation and modification date of the file
             ts = datetime.combine(creation_date, datetime.min.time()).timestamp()
             os.utime(str(path), (ts, ts))
-        return NativeDirectoryEntry(path)
+        return NativeDirectoryEntry(self, path)
 
     def create_directory(
         self,
         fullname: str,
         options: t.Dict[str, t.Union[bool, str]],
-    ) -> t.Optional["NativeDirectoryEntry"]:
+    ) -> NativeDirectoryEntry:
         """
         Create a directory
         """
         path = (self.base_path / self.pwd / fullname).resolve()
         path.mkdir(parents=True, exist_ok=False)  # May raise OSError in case of errors
-        return NativeDirectoryEntry(path)
+        return NativeDirectoryEntry(self, path)
 
     def chdir(self, fullname: str) -> bool:
         """

@@ -3,17 +3,17 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from xferx.apple2.commons import (
+from xferx.apple.commons import (
+    AppleSingle,
     ProDOSFileInfo,
-    decode_apple_single,
-    encode_apple_single,
 )
-from xferx.apple2.prodosfs import (
+from xferx.apple.prodosfs import (
     ProDOSFilesystem,
     date_to_prodos,
     parse_file_aux_type,
     prodos_to_date,
 )
+from xferx.commons import BLOCK_SIZE
 from xferx.shell import Shell
 
 DSK = "tests/dsk/prodos.dsk"
@@ -34,7 +34,7 @@ def test_date_round_trip():
 def test_bitmap():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /prodos {DSK}", batch=True)
-    fs = shell.volumes.get_volume('T')
+    fs = shell.volumes.get_volume("T")
     bitmap = fs.read_bitmap()
     print(f"used: {bitmap.used()} free: {bitmap.free()} total: {fs.total_blocks}")
     u = set()
@@ -54,7 +54,7 @@ def test_bitmap():
 def test_prodos():
     shell = Shell(verbose=True)
     shell.onecmd(f"mount t: /prodos {DSK}", batch=True)
-    fs = shell.volumes.get_volume('T')
+    fs = shell.volumes.get_volume("T")
     assert isinstance(fs, ProDOSFilesystem)
 
     shell.onecmd("dir t:", batch=True)
@@ -92,7 +92,7 @@ def test_prodos_init():
     shell.onecmd("cd /prodos/aaa/bbb", batch=True)
     shell.onecmd("dir", batch=True)
     shell.onecmd("cd /prodos", batch=True)
-    fs = shell.volumes.get_volume('OU')
+    fs = shell.volumes.get_volume("OU")
 
     x1 = fs.read_bytes("aaa/bbb/50.txt")
     x1 = x1.rstrip(b"\0")
@@ -136,15 +136,15 @@ def test_types():
     shell.onecmd(f"create {DSK}.mo /allocate:2000", batch=True)
     shell.onecmd(f"init /prodos {DSK}.mo", batch=True)
     shell.onecmd(f"mount ou: /prodos {DSK}.mo", batch=True)
-    fs = shell.volumes.get_volume('OU')
+    fs = shell.volumes.get_volume("OU")
     shell.onecmd("create ou:test1 /allocate:1 /type:txt,3000", batch=True)
     test1 = fs.get_file_entry("test1")
-    assert test1.storage_type == 0x1
+    assert test1.prodos_storage_type == 0x1
     assert test1.prodos_file_type == 0x4
     assert test1.aux_type == 3000
     shell.onecmd("create ou:test2 /allocate:1 /type:bin,$2000", batch=True)
     test2 = fs.get_file_entry("test2")
-    assert test2.storage_type == 0x1
+    assert test2.prodos_storage_type == 0x1
     assert test2.prodos_file_type == 0x6
     assert test2.aux_type == 0x2000
 
@@ -173,18 +173,18 @@ def test_apple_single():
     info = ProDOSFileInfo(0xFF, 0x34, 0x5678)
     data = b"Hello, world!"
     resource = b"Resource"
-    apple_single = encode_apple_single(info, data, resource)
-    data2, resource2, info2 = decode_apple_single(apple_single)
-    assert data == data2
-    assert resource == resource2
-    assert info.access == info2.access
-    assert info.file_type == info2.file_type
-    assert info.aux_type == info2.aux_type
-    apple_single3 = encode_apple_single(info, data)
-    data3, resource3, info3 = decode_apple_single(apple_single3)
-    assert data == data3
-    assert resource3 is None
-    assert info == info3
+    apple_single_b = AppleSingle(prodos_file_info=info, data=data, resource=resource).write()
+    apple_single = AppleSingle.read(apple_single_b)
+    assert data == apple_single.data
+    assert resource == apple_single.resource
+    assert info.access == apple_single.prodos_file_info.access
+    assert info.file_type == apple_single.prodos_file_info.file_type
+    assert info.aux_type == apple_single.prodos_file_info.aux_type
+    apple_single_b2 = AppleSingle(prodos_file_info=info, data=data).write()
+    apple_single2 = AppleSingle.read(apple_single_b2)
+    assert data == apple_single2.data
+    assert apple_single2.resource is None
+    assert info == apple_single2.prodos_file_info
 
     shell = Shell(verbose=True)
     shell.onecmd(f"create {DSK}.mo /allocate:2000", batch=True)
@@ -193,14 +193,29 @@ def test_apple_single():
     fs = shell.volumes.get_volume('OU')
     shell.onecmd("copy tests/dsk/ciao.apple2 ou:", batch=True)
     test1 = fs.get_file_entry("ciao.apple2")
-    assert test1.storage_type == 0x2
+    assert test1.prodos_storage_type == 0x2
     assert test1.prodos_file_type == 0x6
     assert test1.aux_type == 8192
 
-    fs.write_bytes(fullname="test.extended", content=apple_single)
+    fs.write_bytes(fullname="test.extended", content=apple_single_b)
     test2 = fs.get_file_entry("test.extended")
-    assert test2.storage_type == 0x5
+    assert test2.prodos_storage_type == 0x5
     assert test2.prodos_file_type == 0x34
     assert test2.aux_type == 0x5678
-    assert data == fs.read_bytes("test.extended/data.fork")
-    assert resource == fs.read_bytes("test.extended/resource.fork")
+    assert data == fs.read_bytes("test.extended", fork="DATA")
+    assert resource == fs.read_bytes("test.extended", fork="RESOURCE")
+    assert test2.get_size("DATA") == len(data)
+    assert test2.get_size("RESOURCE") == len(resource)
+    assert test2.get_length("DATA") == (len(data) + BLOCK_SIZE - 1) // BLOCK_SIZE
+    assert test2.get_length("RESOURCE") == (len(resource) + BLOCK_SIZE - 1) // BLOCK_SIZE
+
+    apple_single_b3 = fs.read_bytes("test.extended")
+    apple_single3 = AppleSingle.read(apple_single_b3)
+    assert data == apple_single3.data
+    assert resource == apple_single3.resource
+
+    metadata = test2.metadata
+    assert metadata['prodos_storage_type'] == 0x5
+    assert metadata['prodos_file_type'] == 0x34
+    assert metadata['aux_type'] == 0x5678
+    assert isinstance(metadata['creation_date'], datetime)

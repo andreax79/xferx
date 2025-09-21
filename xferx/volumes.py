@@ -25,9 +25,10 @@ from datetime import date
 from pathlib import Path
 
 from .abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
-from .apple2.appledosfs import AppleDOSFilesystem
-from .apple2.pascalfs import PascalFilesystem
-from .apple2.prodosfs import ProDOSFilesystem
+from .apple.appledosfs import AppleDOSFilesystem
+from .apple.mfs import MacintoshFilesystem
+from .apple.pascalfs import PascalFilesystem
+from .apple.prodosfs import ProDOSFilesystem
 from .commons import ASCII, DECTAPE, DECTAPE_EXT, splitdrive
 from .native import NativeFilesystem
 from .nova.dgdosdumpfs import DGDOSDumpFilesystem
@@ -91,6 +92,7 @@ FILESYSTEMS: t.Dict[str, t.Type[AbstractFilesystem]] = {
     "dgdos": DGDOSFilesystem,
     "dgdosmt": DGDOSMagTapeFilesystem,
     "dgdosdump": DGDOSDumpFilesystem,
+    "mfs": MacintoshFilesystem,
 }
 
 
@@ -266,7 +268,7 @@ class Volumes(object):
             self.volumes[logical] = filesystem.mount(entry.open(), **kwargs)
             self.volumes[logical].target = logical
             self.volumes[logical].source = f"{volume_id}:{entry.fullname}"
-            sys.stdout.write(f"?{cmd}-I-Disk {path} mounted to {logical}:\n")
+            sys.stderr.write(f"?{cmd}-I-Disk {path} mounted to {logical}:\n")
         except Exception as ex:
             if verbose:
                 traceback.print_exc()
@@ -330,8 +332,7 @@ class Volumes(object):
         self,
         fullname: str,
         content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
+        metadata: t.Dict[str, t.Any] = {},
         file_mode: t.Optional[str] = None,
         cmd: str = "KMON",
     ) -> None:
@@ -340,16 +341,13 @@ class Volumes(object):
         """
         volume_id, fullname = splitdrive(fullname)
         fs = self.get_volume(volume_id, cmd=cmd)
-        return fs.write_bytes(
-            fullname=fullname, content=content, creation_date=creation_date, file_type=file_type, file_mode=file_mode
-        )
+        return fs.write_bytes(fullname=fullname, content=content, metadata=metadata, file_mode=file_mode)
 
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
+        size: int,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
         cmd: str = "CREATE",
     ) -> t.Optional["AbstractDirectoryEntry"]:
         """
@@ -357,9 +355,7 @@ class Volumes(object):
         """
         volume_id, fullname = splitdrive(fullname)
         fs = self.get_volume(volume_id, cmd=cmd)
-        return fs.create_file(
-            fullname=fullname, number_of_blocks=number_of_blocks, creation_date=creation_date, file_type=file_type
-        )
+        return fs.create_file(fullname=fullname, size=size, metadata=metadata)
 
     def create_directory(
         self,
@@ -428,7 +424,12 @@ class Volumes(object):
         return fs.read_bytes(fullname=fullname, file_mode=file_mode)
 
     def read_text(
-        self, fullname: str, encoding: str = "ascii", errors: str = "ignore", file_mode: str = ASCII, cmd: str = "KMON"
+        self,
+        fullname: str,
+        encoding: str = "ascii",
+        errors: str = "ignore",
+        file_mode: str = ASCII,
+        cmd: str = "KMON",
     ) -> str:
         """
         Get the content of a file as text
@@ -438,14 +439,19 @@ class Volumes(object):
         return fs.read_text(fullname=fullname, encoding=encoding, errors=errors, file_mode=file_mode)
 
     def dump(
-        self, fullname: str, start: t.Optional[int] = None, end: t.Optional[int] = None, cmd: str = "DUMP"
+        self,
+        fullname: str,
+        start: t.Optional[int] = None,
+        end: t.Optional[int] = None,
+        fork: t.Optional[str] = None,
+        cmd: str = "DUMP",
     ) -> None:
         """
         Dump the content of a file or a range of blocks
         """
         volume_id, fullname = splitdrive(fullname)
         fs = self.get_volume(volume_id, cmd=cmd)
-        fs.dump(fullname=fullname, start=start, end=end)
+        fs.dump(fullname=fullname, start=start, end=end, fork=fork)
 
     def get_types(self, cmd: str, volume_id: str) -> t.List[str]:
         """

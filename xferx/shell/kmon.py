@@ -201,7 +201,7 @@ class Shell:
                 except EOFError:
                     break
                 except KeyboardInterrupt:
-                    sys.stdout.write("\n")
+                    sys.stderr.write("\n")
             # Write history file
             self.write_history()
         finally:
@@ -231,14 +231,14 @@ class Shell:
                 args = split_arguments(arg)
                 func(context, args)
         except KeyboardInterrupt:
-            sys.stdout.write("\n")
-            sys.stdout.write("\n")
+            sys.stderr.write("\n")
+            sys.stderr.write("\n")
         except SystemExit as ex:
             # Allow SystemExit to propagate
             raise ex
         except Exception as ex:
             message = str(sys.exc_info()[1])
-            sys.stdout.write(f"{message}\n")
+            sys.stderr.write(f"{message}\n")
             if self.verbose and not isinstance(ex, CommandError):
                 traceback.print_exc()
             if batch:

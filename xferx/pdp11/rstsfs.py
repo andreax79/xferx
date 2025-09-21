@@ -23,7 +23,7 @@ import os
 import struct
 import sys
 import typing as t
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 from ..abstract import AbstractDirectoryEntry, AbstractFile
 from ..cache import BlockCache
@@ -97,8 +97,10 @@ class PPN(UIC):
     """
 
     @classmethod
-    def from_str(cls, code_str: str) -> "PPN":
-        code_str = code_str.split("[")[1].split("]")[0]
+    def from_str(cls, code_str: str, strict: bool = False) -> "PPN":
+        code_str, tmp = code_str.split("[")[1].split("]", 1)
+        if strict and tmp:
+            raise ValueError("Invalid PPN")
         project_str, user_str = code_str.split(",")
         if project_str == "*":
             project = ANY_GROUP
@@ -143,9 +145,9 @@ def rsts_to_date(udc: int, utc: int) -> datetime:
     """
     year = (udc // 1000) + 1970
     day_of_year = udc % 1000
-    date = datetime(year, 1, 1) + timedelta(days=day_of_year - 1)
+    dt = datetime(year, 1, 1) + timedelta(days=day_of_year - 1)
     time_of_day = timedelta(minutes=1440 - utc)
-    full_datetime = date + time_of_day
+    full_datetime = dt + time_of_day
     return full_datetime
 
 
@@ -550,13 +552,13 @@ class UFDNameEntry(AbstractDirectoryEntry):
     def creation_date(self) -> datetime:
         return rsts_to_date(self.account_entry.udc, self.account_entry.utc)
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return self.account_entry.usiz
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -580,7 +582,7 @@ class UFDNameEntry(AbstractDirectoryEntry):
         """
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
-    def open(self, file_mode: t.Optional[str] = None) -> RSTSFile:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> RSTSFile:
         """
         Open a file
         """
@@ -1003,6 +1005,11 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
     fs_name = "rsts"
     fs_description = "PDP-11 RSTS/E"
     fs_platforms = ["pdp11"]
+    fs_entry_metadata = [
+        "uprot",
+        "ustat",
+        "creation_date",
+    ]
 
     ppn: PPN  # Current Project Programmer Number
 
@@ -1286,25 +1293,6 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
         except StopIteration:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), fullname)
 
-    def write_bytes(
-        self,
-        fullname: str,
-        content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
-        file_mode: t.Optional[str] = None,
-    ) -> None:
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
-
-    def create_file(
-        self,
-        fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
-    ) -> UFDNameEntry:
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
-
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         if options.get("uic"):
             # Listing of all PPN
@@ -1321,10 +1309,8 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
                 # Lists only file names and file types
                 sys.stdout.write(f"{x.filename:<6}.{x.extension:<3}\n")
             else:
-                date = x.creation_date.strftime("%d-%b-%y %H:%M")
-                sys.stdout.write(
-                    f"{x.filename:<6}.{x.extension:<3} {x.account_entry.usiz:>5}   <{x.uprot:>3}> {date}\n"
-                )
+                dt = x.creation_date.strftime("%d-%b-%y %H:%M")
+                sys.stdout.write(f"{x.filename:<6}.{x.extension:<3} {x.account_entry.usiz:>5}   <{x.uprot:>3}> {dt}\n")
                 blocks += x.account_entry.usiz
                 files += 1
         if options.get("brief"):
@@ -1400,10 +1386,38 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
         Change the current Project Programmer Number
         """
         try:
-            self.ppn = PPN.from_str(fullname)
+            self.ppn = PPN.from_str(fullname, strict=True)
             return True
         except Exception:
             return False
 
     def get_pwd(self) -> str:
+        """
+        Get the current Project Programmer Number
+        """
         return str(self.ppn)
+
+    def isdir(self, fullname: str) -> bool:
+        """
+        Check if the given path is a Project Programmer Number (PPN)
+        """
+        try:
+            PPN.from_str(fullname, strict=True)
+            return True
+        except Exception:
+            return False
+
+    def path_join(self, path: str, *paths: str) -> str:
+        """
+        Join PPN and filename
+        """
+        paths = [x for x in paths if x]  # type: ignore
+        if not paths:
+            return path
+        try:
+            ppn = PPN.from_str(path)
+        except Exception:
+            raise NotADirectoryError(errno.ENOTDIR, os.strerror(errno.ENOTDIR), path)
+        if len(paths) > 1:
+            raise OSError(errno.EINVAL, "Can only join PPN and filename")
+        return f"{ppn}{paths[0]}"

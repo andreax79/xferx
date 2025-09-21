@@ -347,11 +347,11 @@ class UNIXDirectoryEntry(AbstractDirectoryEntry):
     def basename(self) -> str:
         return self.filename
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """Get the length in blocks"""
         return self.inode.get_length()
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """Get file size in bytes"""
         return self.inode.get_size()
 
@@ -361,7 +361,45 @@ class UNIXDirectoryEntry(AbstractDirectoryEntry):
 
     @property
     def creation_date(self) -> t.Optional[date]:
+        """
+        Creation date
+        """
         return datetime.fromtimestamp(self.inode.mtime)
+
+    @property
+    def last_access(self) -> t.Optional[date]:
+        """
+        Last access date
+        """
+        return datetime.fromtimestamp(self.inode.atime)
+
+    @property
+    def last_mod_date(self) -> t.Optional[date]:
+        """
+        Last modification date
+        """
+        return datetime.fromtimestamp(self.inode.mtime)
+
+    @property
+    def unix_uid(self) -> int:
+        """
+        User ID of owner
+        """
+        return self.inode.uid
+
+    @property
+    def unix_gid(self) -> t.Optional[int]:
+        """
+        Group ID of owner
+        """
+        return self.inode.gid
+
+    @property
+    def unix_flags(self) -> int:
+        """
+        Unix flags
+        """
+        return self.inode.flags
 
     def dirent(self) -> "Dirent":
         """
@@ -410,7 +448,7 @@ class UNIXDirectoryEntry(AbstractDirectoryEntry):
     def delete(self) -> bool:
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
-    def open(self, file_mode: t.Optional[str] = None) -> UNIXFile:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> UNIXFile:
         """
         Open a file
         """
@@ -601,22 +639,11 @@ class UNIXFilesystem(AbstractBlockFilesystem):
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), fullname)
         return UNIXDirectoryEntry(self, fullname, inode.inode_num, inode)
 
-    def write_bytes(
-        self,
-        fullname: str,
-        content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
-        file_mode: t.Optional[str] = None,
-    ) -> None:
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
-
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
     ) -> UNIXDirectoryEntry:
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
@@ -691,7 +718,7 @@ class UNIXFilesystem(AbstractBlockFilesystem):
                 if hasattr(inode, "examine"):
                     sys.stdout.write(inode.examine())  # type: ignore
                 else:
-                    sys.stdout.write(dump_struct(inode.__dict__) + "\n")
+                    sys.stdout.write(dump_struct(inode.__dict__, newline=True))
                 if inode.isdir:
                     # Dump the directory entries
                     sys.stdout.write("Directory entries:\n")
@@ -701,8 +728,7 @@ class UNIXFilesystem(AbstractBlockFilesystem):
                             sys.stdout.write(f"{child_inode} {dirent.filename}\n")
         else:
             # Dump the entire filesystem
-            sys.stdout.write(dump_struct(self.__dict__))
-            sys.stdout.write("\n")
+            sys.stdout.write(dump_struct(self.__dict__, newline=True))
             for i in range(1, self.inodes + 1):
                 inode = self.read_inode(i)
                 sys.stdout.write(f"{inode}\n")

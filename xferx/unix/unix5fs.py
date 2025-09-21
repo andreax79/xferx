@@ -31,4 +31,13 @@ class UNIX5Filesystem(UNIX4Filesystem):
     fs_name = "unix5"
     fs_description = "UNIX version 5"
     fs_platforms = ["pdp-11"]
+    fs_entry_metadata = [
+        "creation_date",
+        "last_access",
+        "last_mod_date",
+        "unix_flags",
+        "unix_uid",
+        "unix_gid",
+    ]
+
     version: int = 5  # UNIX version

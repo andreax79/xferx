@@ -164,6 +164,7 @@ class AbstractFile(ABC):
 
 
 class AbstractDirectoryEntry(ABC):
+    fs: "AbstractFilesystem"
 
     @property
     @abstractmethod
@@ -186,11 +187,11 @@ class AbstractDirectoryEntry(ABC):
         return None
 
     @abstractmethod
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """Get the length in blocks"""
 
     @abstractmethod
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """Get file size in bytes"""
 
     @abstractmethod
@@ -201,23 +202,30 @@ class AbstractDirectoryEntry(ABC):
     def delete(self) -> bool:
         """Delete the directory entry"""
 
-    @abstractmethod
-    def write(self) -> bool:
-        """Write the directory entry"""
+    # @abstractmethod
+    # def write(self) -> bool:
+    #     """Write the directory entry"""
 
     @abstractmethod
-    def open(self, file_mode: t.Optional[str] = None) -> AbstractFile:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> AbstractFile:
         """Open the file"""
 
-    def read_bytes(self, file_mode: t.Optional[str] = None) -> bytes:
+    def read_bytes(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> bytes:
         """Get the content of the file"""
-        with self.open(file_mode) as f:
+        with self.open(file_mode=file_mode, fork=fork) as f:
             return f.read_block(0, READ_FILE_FULL)[: f.get_size()]
 
-    def read_text(self, encoding: str = "ascii", errors: str = "ignore", file_mode: str = ASCII) -> str:
+    def read_text(
+        self, encoding: str = "ascii", errors: str = "ignore", file_mode: str = ASCII, fork: t.Optional[str] = None
+    ) -> str:
         """Get the content of the file as text"""
         data = self.read_bytes(file_mode)
         return data.decode(encoding, errors)
+
+    @property
+    def metadata(self) -> t.Dict[str, t.Any]:
+        """Get metadata of the directory entry"""
+        return {k: getattr(self, k, None) for k in self.fs.fs_entry_metadata}
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.__dict__})"
@@ -229,6 +237,8 @@ class AbstractFilesystem:
     fs_name: str  # Filesystem name
     fs_description: str  # Filesystem description
     fs_platforms: t.List[str] = []  # Filesystem platforms
+    fs_forks: t.List[str] = []  # Supported file forks
+    fs_entry_metadata: t.List[str] = []  # Supported metadata for file entries
 
     dev: AbstractDevice  # Device from which the filesystem is mounted
     target: t.Optional[str] = None  # Login volume for the mounted filesystem
@@ -267,32 +277,20 @@ class AbstractFilesystem:
     def get_file_entry(self, fullname: str) -> "AbstractDirectoryEntry":
         """Get the directory entry for a file"""
 
-    @abstractmethod
-    def write_bytes(
-        self,
-        fullname: str,
-        content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
-        file_mode: t.Optional[str] = None,
-    ) -> None:
-        """Write content to a file"""
-
-    @abstractmethod
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
-    ) -> t.Optional["AbstractDirectoryEntry"]:
-        """Create a new file with a given length in number of blocks"""
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
+    ) -> "AbstractDirectoryEntry":
+        """Create a new file"""
+        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
     def create_directory(
         self,
         fullname: str,
         options: t.Dict[str, t.Union[str, bool]],
-    ) -> t.Optional["AbstractDirectoryEntry"]:
+    ) -> "AbstractDirectoryEntry":
         """Create a new directory"""
         raise OSError(errno.ENOSYS, os.strerror(errno.ENOSYS))
 
@@ -307,6 +305,13 @@ class AbstractFilesystem:
     def isdir(self, fullname: str) -> bool:
         """Check if the given path is a directory"""
         return False
+
+    def path_join(self, path: str, *paths: str) -> str:
+        """Join directory path and filename"""
+        return os.path.join(path, *paths)  # TODO
+        # if dirpath and not dirpath.endswith("/"):
+        #     dirpath += "/"
+        # return f"{dirpath}{filename}"
 
     @abstractmethod
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
@@ -332,35 +337,66 @@ class AbstractFilesystem:
         except FileNotFoundError:
             return False
 
-    def open_file(self, fullname: str, file_mode: t.Optional[str] = None) -> "AbstractFile":
+    def open_file(
+        self, fullname: str, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None
+    ) -> "AbstractFile":
         """Open a file"""
         entry = self.get_file_entry(fullname)
-        return entry.open(file_mode)
+        return entry.open(file_mode=file_mode, fork=fork)
 
-    def read_bytes(self, fullname: str, file_mode: t.Optional[str] = None) -> bytes:
+    def read_bytes(self, fullname: str, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> bytes:
         """Get the content of a file"""
         entry = self.get_file_entry(fullname)
-        return entry.read_bytes(file_mode)
+        return entry.read_bytes(file_mode=file_mode, fork=fork)
 
-    def read_text(self, fullname: str, encoding: str = "ascii", errors: str = "ignore", file_mode: str = ASCII) -> str:
+    def write_bytes(
+        self,
+        fullname: str,
+        content: t.Union[bytes, bytearray],
+        fork: t.Optional[str] = None,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
+        file_mode: t.Optional[str] = None,
+    ) -> None:
+        """Write content to a file"""
+        # Create the file
+        entry = self.create_file(fullname=fullname, size=len(content), metadata=metadata)
+        # Write the content to the file
+        with entry.open(file_mode) as f:
+            f.write(content)
+
+    def read_text(
+        self,
+        fullname: str,
+        encoding: str = "ascii",
+        errors: str = "ignore",
+        file_mode: str = ASCII,
+        fork: t.Optional[str] = None,
+    ) -> str:
         """Get the content of a file as text"""
-        data = self.read_bytes(fullname, file_mode)
+        data = self.read_bytes(fullname, file_mode=file_mode, fork=fork)
         return data.decode(encoding, errors)
 
-    def dump(self, fullname: t.Optional[str], start: t.Optional[int] = None, end: t.Optional[int] = None) -> None:
+    def dump(
+        self,
+        fullname: t.Optional[str],
+        start: t.Optional[int] = None,
+        end: t.Optional[int] = None,
+        fork: t.Optional[str] = None,
+    ) -> None:
         """Dump the content of a file or a range of blocks"""
-        # TODO: Check block range
         if fullname:
-            if start is None:
-                start = 0
-            if end is None:
-                entry = self.get_file_entry(fullname)
-                end = entry.get_length() - 1
-            with self.open_file(fullname, file_mode=IMAGE) as f:
-                for block_number in range(start, end + 1):
-                    data = f.read_block(block_number)
+            with self.open_file(fullname, file_mode=IMAGE, fork=fork) as f:
+                block_number = start if start is not None else 0
+                while True:
+                    try:
+                        data = f.read_block(block_number)
+                    except OSError:
+                        break
                     sys.stdout.write(f"\nBLOCK NUMBER   {block_number:08}\n")
                     hex_dump(data)
+                    block_number += 1
+                    if end is not None and block_number > end:
+                        break
         elif hasattr(self, "read_block"):
             if start is None:
                 start = 0

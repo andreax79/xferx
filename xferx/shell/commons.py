@@ -25,6 +25,7 @@ import traceback
 import typing as t
 
 from ..abstract import AbstractDirectoryEntry, AbstractFilesystem
+from ..commons import BLOCK_SIZE
 
 if t.TYPE_CHECKING:
     from ..volumes import Volumes
@@ -41,6 +42,8 @@ __all__ = [
     "copy_file",
     "extract_options",
     "get_int_option",
+    "get_str_option",
+    "parse_size",
     "split_arguments",
     "split_command_line",
 ]
@@ -110,25 +113,45 @@ def get_int_option(
         raise CommandError("?KMON-F-Invalid value specified with option")
 
 
+def get_str_option(
+    options: t.Dict[str, t.Union[bool, str]], key: str, default: t.Optional[str] = None
+) -> t.Optional[str]:
+    """
+    Get a string option from the options dictionary
+    """
+    return options.get(key) if isinstance(options.get(key), str) else default  # type: ignore
+
+
 def copy_file(
-    from_fs: AbstractFilesystem,
     from_entry: AbstractDirectoryEntry,
+    from_fork: t.Optional[str],
     to_fs: AbstractFilesystem,
     to_path: str,
-    file_type: t.Optional[str],
+    to_fork: t.Optional[str],
+    to_file_type: t.Optional[str],
     file_mode: t.Optional[str],
     verbose: int,
     cmd: str = "COPY",
 ) -> None:
-    if not file_type:
-        file_type = from_entry.file_type
+    if not to_file_type:
+        to_file_type = from_entry.file_type
     try:
-        content = from_entry.read_bytes(file_mode)
-        to_fs.write_bytes(to_path, content, from_entry.creation_date, file_type, file_mode)
-    except Exception:
+        content = from_entry.read_bytes(file_mode, from_fork)
+        metadata = from_entry.metadata
+        if to_file_type:
+            metadata["file_type"] = to_file_type
+        to_fs.write_bytes(
+            fullname=to_path,
+            content=content,
+            fork=to_fork,
+            metadata=metadata,
+            file_mode=file_mode,
+        )
+    except Exception as ex:
         if verbose:
             traceback.print_exc()
-        raise CommandError(f"?{cmd}-F-Error copying {from_entry.fullname}")
+        message = getattr(ex, "strerror", "") or str(ex)
+        raise CommandError(f"?{cmd}-F-Error copying {from_entry.fullname}: {message}")
 
 
 def add_slash(fs: AbstractFilesystem, filename: str) -> str:
@@ -219,6 +242,17 @@ def split_arguments(line: t.Optional[str], platform: t.Optional[str] = None) -> 
         result.append(current_argument)
 
     return result
+
+
+def parse_size(size_str: str) -> int:
+    """
+    Convert a size string with optional unit suffix (K, M, G, T) to an integer
+    """
+    units = {"": BLOCK_SIZE, "B": 1, "K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
+    size_str = size_str.strip()
+    unit = size_str[-1] if size_str[-1].isalpha() else ""
+    number = int(size_str[:-1]) if unit else int(size_str)
+    return number * units[unit]
 
 
 class PartialMatching:

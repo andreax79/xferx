@@ -44,8 +44,10 @@ class UIC:
         self.user = user & 0xFF
 
     @classmethod
-    def from_str(cls, code_str: str) -> "UIC":
-        code_str = code_str.split("[")[1].split("]")[0]
+    def from_str(cls, code_str: str, strict: bool = False) -> "UIC":
+        code_str, tmp = code_str.split("[")[1].split("]", 1)
+        if strict and tmp:
+            raise ValueError("Invalid UIC")
         group_str, user_str = code_str.split(",")
         if group_str == "*":
             group = ANY_GROUP

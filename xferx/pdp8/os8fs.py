@@ -20,7 +20,6 @@
 
 import errno
 import io
-import math
 import os
 import re
 import sys
@@ -333,6 +332,7 @@ class OS8DirectoryEntry(AbstractDirectoryEntry):
     http://www.bitsavers.org/pdf/dec/pdp8/os8/DEC-S8-OSSMB-A-D_OS8_v3ssup.pdf Pag 63
     """
 
+    fs: "OS8Filesystem"
     segment: "OS8Segment"
     filename: str = ""
     extension: str = ""
@@ -344,6 +344,7 @@ class OS8DirectoryEntry(AbstractDirectoryEntry):
     empty_entry: bool = False
 
     def __init__(self, segment: "OS8Segment"):
+        self.fs = segment.partition.fs
         self.segment = segment
 
     @classmethod
@@ -427,13 +428,13 @@ class OS8DirectoryEntry(AbstractDirectoryEntry):
     def basename(self) -> str:
         return self.fullname
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return self.length
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -469,7 +470,7 @@ class OS8DirectoryEntry(AbstractDirectoryEntry):
         self.segment.write()
         return True
 
-    def open(self, file_mode: t.Optional[str] = None) -> OS8File:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> OS8File:
         """
         Open a file
         """
@@ -805,14 +806,16 @@ class OS8Partition:
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # t.optional creation date
-        file_type: t.Optional[str] = None,
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
     ) -> OS8DirectoryEntry:
+        metadata = metadata or {}
         try:
             self.get_file_entry(fullname).delete()
         except FileNotFoundError:
             pass
+        number_of_blocks = (size + OS8_BLOCK_SIZE_BYTES - 1) // OS8_BLOCK_SIZE_BYTES
+        creation_date: t.Optional[date] = metadata.get("creation_date", None)  # type: ignore
         return self.allocate_space(fullname, number_of_blocks, creation_date)
 
     def initialize(self, **kwargs: t.Union[bool, str]) -> None:
@@ -867,6 +870,10 @@ class OS8Filesystem(AbstractFilesystem):
     fs_name = "os8"
     fs_description = "PDP-8 OS/8"
     fs_platforms = ["pdp-8"]
+    fs_entry_metadata = [
+        "creation_date",
+    ]
+
     dev: BlockDevice12Bit
 
     current_partition: int  # Current partition
@@ -992,29 +999,14 @@ class OS8Filesystem(AbstractFilesystem):
                     return entry
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), fullname)
 
-    def write_bytes(
-        self,
-        fullname: str,
-        content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
-        file_mode: t.Optional[str] = None,
-    ) -> None:
-        number_of_blocks = int(math.ceil(len(content) / OS8_BLOCK_SIZE_BYTES))
-        entry = self.create_file(fullname, number_of_blocks, creation_date, file_type)
-        content = content + (b"\0" * OS8_BLOCK_SIZE_BYTES)
-        with entry.open(file_mode) as f:
-            f.write_block(content, block_number=0, number_of_blocks=entry.length)
-
     def create_file(
         self,
         fullname: str,
-        length: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
     ) -> OS8DirectoryEntry:
         partition, fullname = os8_split_fullname(self.current_partition, fullname, wildcard=False)  # type: ignore
-        return self.get_partition(partition).create_file(fullname, length, creation_date, file_type)
+        return self.get_partition(partition).create_file(fullname, size, metadata)
 
     def chdir(self, fullname: str) -> bool:
         try:
@@ -1025,9 +1017,6 @@ class OS8Filesystem(AbstractFilesystem):
             return False
         self.current_partition = int(fullname)
         return True
-
-    def isdir(self, fullname: str) -> bool:
-        return False
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         i = 0
@@ -1087,7 +1076,13 @@ class OS8Filesystem(AbstractFilesystem):
                 for segment in partition.read_dir_segments():
                     sys.stdout.write(f"{segment}\n")
 
-    def dump(self, fullname: t.Optional[str], start: t.Optional[int] = None, end: t.Optional[int] = None) -> None:
+    def dump(
+        self,
+        fullname: t.Optional[str],
+        start: t.Optional[int] = None,
+        end: t.Optional[int] = None,
+        fork: t.Optional[str] = None,
+    ) -> None:
         """Dump the content of a file or a range of blocks"""
         if fullname:
             entry = self.get_file_entry(fullname)
@@ -1133,9 +1128,6 @@ class OS8Filesystem(AbstractFilesystem):
         Get filesystem size in bytes
         """
         return self.dev.get_size()
-
-    def close(self) -> None:
-        self.dev.close()
 
     def get_pwd(self) -> str:
         if self.current_partition == 0:

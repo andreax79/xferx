@@ -19,7 +19,6 @@
 # THE SOFTWARE.
 
 import errno
-import math
 import os
 import struct
 import sys
@@ -339,6 +338,7 @@ class SOLODirectoryEntry(SOLOAbstractSortableDirectoryEntry):
 
     """
 
+    fs: "SOLOFilesystem"
     cat_page: "SOLOCatalogPage"
     filename: str = ""  # Filename (12 chars)
     file_type_id: int = 0  # File type (scratch, ascii, seqcode and concode)
@@ -350,6 +350,7 @@ class SOLODirectoryEntry(SOLOAbstractSortableDirectoryEntry):
     page_map: t.List[int]  # Map file blocks to disk blocks
 
     def __init__(self, cat_page: "SOLOCatalogPage"):
+        self.fs = cat_page.fs
         self.cat_page = cat_page
 
     @classmethod
@@ -424,13 +425,13 @@ class SOLODirectoryEntry(SOLOAbstractSortableDirectoryEntry):
         """
         return len(self.page_map)
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         File length in blocks
         """
         return len(self.page_map)
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -441,10 +442,6 @@ class SOLODirectoryEntry(SOLOAbstractSortableDirectoryEntry):
         Get file block size in bytes
         """
         return BLOCK_SIZE
-
-    @property
-    def fs(self) -> "SOLOFilesystem":
-        return self.cat_page.fs
 
     def delete(self) -> bool:
         # Update the free block bitmap
@@ -471,7 +468,7 @@ class SOLODirectoryEntry(SOLOAbstractSortableDirectoryEntry):
         """
         raise OSError(errno.EINVAL, "Invalid operation on SOLO filesystem")
 
-    def open(self, file_mode: t.Optional[str] = None) -> SOLOFile:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> SOLOFile:
         """
         Open a file
         """
@@ -525,7 +522,7 @@ class SOLOSegmentDirectoryEntry(SOLOAbstractSortableDirectoryEntry):
         else:
             return SEGMENT_LENGTH
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         File length in blocks
         """
@@ -534,7 +531,7 @@ class SOLOSegmentDirectoryEntry(SOLOAbstractSortableDirectoryEntry):
         else:
             return SEGMENT_LENGTH
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -555,7 +552,7 @@ class SOLOSegmentDirectoryEntry(SOLOAbstractSortableDirectoryEntry):
         """
         raise OSError(errno.EINVAL, "Invalid operation on segment")
 
-    def open(self, file_mode: t.Optional[str] = None) -> SOLOSegment:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> SOLOSegment:
         """
         Open a segment
         """
@@ -803,6 +800,11 @@ class SOLOFilesystem(AbstractRXBlockFilesystem):
     fs_name = "solo"
     fs_description = "PDP-11 SOLO"
     fs_platforms = ["pdp11"]
+    fs_entry_metadata = [
+        "protected",
+        "file_type",
+        "creation_date",
+    ]
 
     catalog_length: int
 
@@ -939,37 +941,34 @@ class SOLOFilesystem(AbstractRXBlockFilesystem):
         self,
         fullname: str,
         content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
+        fork: t.Optional[str] = None,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
         file_mode: t.Optional[str] = None,
-        protected: bool = False,
     ) -> None:
         """
         Write content to a file/segment
         """
-        number_of_blocks = int(math.ceil(len(content) * 1.0 / BLOCK_SIZE))
-        if number_of_blocks > MAX_FILE_SIZE:
-            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+        metadata = metadata or {}
+        file_type: t.Optional[str] = metadata.get("file_type")  # type: ignore
         if get_file_type_id(file_type) == FILE_TYPE_ASCII:
             content = ascii_to_solo(content)
-
-        entry = self.create_file(
-            fullname=fullname, number_of_blocks=number_of_blocks, file_type=file_type, protected=protected
-        )
-        with SOLOSegment(entry) if isinstance(entry, SOLOSegmentDirectoryEntry) else SOLOFile(entry) as f:
+        entry = self.create_file(fullname=fullname, size=len(content), metadata=metadata)
+        with entry.open(file_mode=file_mode) as f:
             f.write_block(content, 0, entry.length)
 
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
-        protected: bool = False,
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
     ) -> t.Union[SOLODirectoryEntry, SOLOSegmentDirectoryEntry]:
         """
         Create a new file with a given length in number of blocks
         """
+        metadata = metadata or {}
+        file_type: t.Optional[str] = metadata.get("file_type")  # type: ignore
+        protected: bool = bool(metadata.get("protected", False))  # type: ignore
+        number_of_blocks = (size + BLOCK_SIZE - 1) // BLOCK_SIZE
         if number_of_blocks > MAX_FILE_SIZE:
             raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
         # Delete the existing file
@@ -1097,7 +1096,8 @@ class SOLOFilesystem(AbstractRXBlockFilesystem):
             catalog_page = SOLOCatalogPage.read(self, block_number)
             catalog_page.write()
         # Create NEXT
-        self.create_file(fullname="NEXT", number_of_blocks=255, file_type="SCRATCH", protected=True)
+        metadata = {"protected": True, "file_type": "SCRATCH"}
+        self.create_file(fullname="NEXT", size=255 * BLOCK_SIZE, metadata=metadata)
         return self
 
     def get_types(self) -> t.List[str]:

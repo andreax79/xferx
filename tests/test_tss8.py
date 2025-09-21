@@ -1,5 +1,7 @@
 from datetime import date
 
+import pytest
+
 from xferx.pdp8.tss8fs import (
     TSS8_BLOCK_SIZE_BYTES,
     TSS8Filesystem,
@@ -39,6 +41,8 @@ def test_tss8():
     bitmap1 = fs.read_bitmap()
 
     shell.onecmd("create /allocate:5 t:[10,20]test.asc", batch=True)
+    entry = fs.get_file_entry("[10,20]test.asc")
+    assert entry.length == 5
     l = list(fs.filter_entries_list("[10,20]*.asc"))
     assert len(l) == 4
     bitmap2 = fs.read_bitmap()
@@ -83,8 +87,8 @@ def test_tss8():
 
 def test_tss8_write_file():
     shell = Shell(verbose=True)
-    shell.onecmd(f"copy {DSK} {DSK}.mo", batch=True)
-    shell.onecmd(f"mount t: /tss8 {DSK}.mo", batch=True)
+    shell.onecmd(f"copy {DSK} {DSK}_1.mo", batch=True)
+    shell.onecmd(f"mount t: /tss8 {DSK}_1.mo", batch=True)
 
     blocks = 5
     filename = "t:[10,20]data.asc"
@@ -92,8 +96,15 @@ def test_tss8_write_file():
     for i in range(0, blocks):
         data += chr(i + 65).encode("ascii") * TSS8_BLOCK_SIZE_BYTES
     shell.volumes.write_bytes(filename, data)
+    shell.onecmd("dir t:[10,20]", batch=True)
+
+    assert len(data) == blocks * TSS8_BLOCK_SIZE_BYTES
+    entry = shell.volumes.get_file_entry(filename)
+    assert entry.length == blocks
+    print(entry)
 
     data_read = shell.volumes.read_bytes(filename)
+    assert len(data_read) == len(data)
     assert data_read == data
 
     f = shell.volumes.open_file(filename)
@@ -125,3 +136,28 @@ def test_tss8_write_file():
         block_data = f.read_block(i * 2, number_of_blocks=2)
         assert block_data == chr(i + 85).encode("ascii") * TSS8_BLOCK_SIZE_BYTES * 2
     f.close()
+    shell.onecmd(f"del {DSK}_1.mo", batch=True)
+
+
+def test_tss8_init():
+    shell = Shell(verbose=True)
+    shell.onecmd(f"mount t: /tss8 {DSK}", batch=True)
+    shell.onecmd(f"create /allocate:1024 {DSK}_2.mo", batch=True)
+    shell.onecmd(f"init /tss8 {DSK}_2.mo", batch=True)
+    shell.onecmd(f"mount ou: /tss8 {DSK}_2.mo", batch=True)
+    shell.onecmd("create/directory ou:[5,5]", batch=True)
+    shell.onecmd("cd ou:[5,5]", batch=True)
+    shell.onecmd("copy t:[10,20]*.asc ou:[5,5]", batch=True)
+    shell.onecmd("dir ou:[5,5]", batch=True)
+
+    x1 = shell.volumes.read_bytes("ou:[5,5]f5.asc")
+    x1 = x1.rstrip(b"\0")
+    assert len(x1) == 220
+    for i in range(0, 5):
+        assert f"{i:5d} ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890".encode("ascii") in x1
+
+    # Test init mounted volume
+    shell.onecmd("init ou:", batch=True)
+    with pytest.raises(Exception):
+        shell.volumes.read_bytes("ou:[5,5]f5.asc")
+    shell.onecmd(f"del sy:{DSK}_2.mo", batch=True)

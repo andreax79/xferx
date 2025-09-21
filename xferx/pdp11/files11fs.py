@@ -239,7 +239,7 @@ class Files11FileHeader:
     # Ident Area
     filename: str  # File Name
     extension: str  # File Type
-    fver: int  # Version Number
+    version: int  # Version Number
     rvno: int  # Revision Number
     rvdt: bytes  # Revision Date
     rvti: bytes  # Revision Time
@@ -291,7 +291,7 @@ class Files11FileHeader:
             fnam1,  #     1 word
             fnam2,  #     1 word
             ftyp,  #      1 word  File Type
-            self.fver,  # 1 word  Version Number
+            self.version,  # 1 word  Version Number
             self.rvno,  # 1 word  Revision Number
             self.rvdt,  # 7 bytes Revision Date
             self.rvti,  # 6 bytes Revision Time
@@ -378,7 +378,7 @@ class Files11FileHeader:
         return UIC.from_word(self.fown)
 
     def __str__(self) -> str:
-        return f"{self.fnum:>5},{self.fseq:<5} {str(self.uic):9s} {self.basename:>14};{self.fver}  FCHA: {self.fcha:04x}  RTYP: {self.rtyp:1}  Length: {self.length:9}"
+        return f"{self.fnum:>5},{self.fseq:<5} {str(self.uic):9s} {self.basename:>14};{self.version}  FCHA: {self.fcha:04x}  RTYP: {self.rtyp:1}  Length: {self.length:9}"
 
     def __repr__(self) -> str:
         return str(self.__dict__)
@@ -402,7 +402,7 @@ class Files11DirectoryEntry(AbstractDirectoryEntry):
     fvol: int  # Relative Volume Number
     filename: str  # File Name
     extension: str  # File Type
-    fver: int  # Version Number
+    version: int  # Version Number
     uic: UIC = DEFAULT_UIC
 
     def __init__(self, fs: "Files11Filesystem", uic: UIC):
@@ -421,7 +421,7 @@ class Files11DirectoryEntry(AbstractDirectoryEntry):
             fnam1,  #     1 word
             fnam2,  #     1 word
             ftyp,  #      1 word File Type
-            self.fver,  # 1 word File Version
+            self.version,  # 1 word File Version
         ) = struct.unpack_from(DIRECTORY_FILE_ENTRY_FORMAT, buffer, position)
         self.filename = rad50_word_to_asc(fnam0) + rad50_word_to_asc(fnam1) + rad50_word_to_asc(fnam2)
         self.extension = rad50_word_to_asc(ftyp)
@@ -458,13 +458,13 @@ class Files11DirectoryEntry(AbstractDirectoryEntry):
     def creation_date(self) -> t.Optional[date]:
         return files11_to_date(self.header.crdt, self.header.crti)
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return self.header.length
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -488,14 +488,14 @@ class Files11DirectoryEntry(AbstractDirectoryEntry):
         """
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
-    def open(self, file_mode: t.Optional[str] = None) -> Files11File:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> Files11File:
         """
         Open a file
         """
         return Files11File(self.header)
 
     def __str__(self) -> str:
-        return f"File ID {'(' + self.file_id + ')':16} Name: {self.basename:12} Ver: {self.fver} FCHA: {self.header.fcha:04x} RTYP: {self.header.rtyp:1} Length: {self.header.length:9}"
+        return f"File ID {'(' + self.file_id + ')':16} Name: {self.basename:12} Ver: {self.version} FCHA: {self.header.fcha:04x} RTYP: {self.header.rtyp:1} Length: {self.header.length:9}"
 
 
 class Files11Filesystem(AbstractRXBlockFilesystem):
@@ -506,6 +506,10 @@ class Files11Filesystem(AbstractRXBlockFilesystem):
     fs_name = "files11"
     fs_description = "PDP-11 Files-11"
     fs_platforms = ["pdp11"]
+    fs_entry_metadata = [
+        "creation_date",
+        "version",
+    ]
 
     uic: UIC  # current User Identification Code
 
@@ -694,25 +698,6 @@ class Files11Filesystem(AbstractRXBlockFilesystem):
         except StopIteration:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), fullname)
 
-    def write_bytes(
-        self,
-        fullname: str,
-        content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
-        file_mode: t.Optional[str] = None,
-    ) -> None:
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
-
-    def create_file(
-        self,
-        fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
-    ) -> Files11DirectoryEntry:
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
-
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         if options.get("uic"):
             # Listing of all UIC
@@ -727,7 +712,7 @@ class Files11Filesystem(AbstractRXBlockFilesystem):
         for x in self.filter_entries_list(pattern, uic=uic, include_all=True, wildcard=True):
             if x.is_empty:
                 continue
-            fullname = f"{x.filename}.{x.extension};{x.fver}"
+            fullname = f"{x.filename}.{x.extension};{x.version}"
             if options.get("brief"):
                 # Lists only file names and file types
                 sys.stdout.write(f"{fullname}\n")
@@ -783,10 +768,38 @@ class Files11Filesystem(AbstractRXBlockFilesystem):
         Change the current User Identification Code
         """
         try:
-            self.uic = UIC.from_str(fullname)
+            self.uic = UIC.from_str(fullname, strict=True)
             return True
         except Exception:
             return False
 
     def get_pwd(self) -> str:
+        """
+        Get the current User Identification Code
+        """
         return str(self.uic)
+
+    def isdir(self, fullname: str) -> bool:
+        """
+        Check if the given path is an UIC
+        """
+        try:
+            UIC.from_str(fullname, strict=True)
+            return True
+        except Exception:
+            return False
+
+    def path_join(self, path: str, *paths: str) -> str:
+        """
+        Join UIC and filename
+        """
+        paths = [x for x in paths if x]  # type: ignore
+        if not paths:
+            return path
+        try:
+            uic = UIC.from_str(path)
+        except Exception:
+            raise NotADirectoryError(errno.ENOTDIR, os.strerror(errno.ENOTDIR), path)
+        if len(paths) > 1:
+            raise OSError(errno.EINVAL, "Can only join UIC and filename")
+        return f"{uic}{paths[0]}"

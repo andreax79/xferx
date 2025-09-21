@@ -35,5 +35,9 @@ cos300.tu56:
 adss.dtp:
 	../../xferx.py -vc "@adss.com"
 
+.PHONY: mfs.dsk
+mfs.dsk:
+	../../xferx.py -vc "@mfs.com"
+
 ciao.apple2:
 	cl65 -v -t apple2 -u __EXEHDR__ --start-addr 8192 ciao.apple2.c -o ciao.apple2

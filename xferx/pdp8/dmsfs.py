@@ -21,7 +21,6 @@
 import errno
 import fnmatch
 import io
-import math
 import os
 import re
 import sys
@@ -642,10 +641,11 @@ class DMSDirectoryEntry(AbstractDirectoryEntry):
 
     """
 
+    fs: "DMSFilesystem"
     dn: "DirectorNameBlock"
-    low_core_addr: int = 0  # Core address low bits
-    high_core_addr: int = 0  # Core bank (core address high bits)
-    entry_point: int  # Entry point
+    dms_low_core_addr: int = 0  # Core address low bits
+    dms_high_core_addr: int = 0  # Core bank (core address high bits)
+    dms_entry_point: int  # Entry point
     filename: str = ""  # Filename (4 chars)
     file_number: int = 0  # 0-63 (6 bits), 0 = Empty
     system_program: bool = False  # System/User program
@@ -654,6 +654,7 @@ class DMSDirectoryEntry(AbstractDirectoryEntry):
     def __init__(self, dn: "DirectorNameBlock", sam: "StorageAllocationMap"):
         self.dn = dn
         self.sam = sam
+        self.fs = dn.fs
 
     @classmethod
     def read(
@@ -666,12 +667,12 @@ class DMSDirectoryEntry(AbstractDirectoryEntry):
         self = cls(dn, sam)
         n1 = words[0 + position]  # Filename char 1-2
         n2 = words[1 + position]  # Filename char 3-4
-        self.low_core_addr = words[2 + position]  # Low core addr / -1 not contiguous
-        self.entry_point = words[3 + position]  # Entry point
+        self.dms_low_core_addr = words[2 + position]  # Low core addr / -1 not contiguous
+        self.dms_entry_point = words[3 + position]  # Entry point
         flags = words[4 + position]  # Flags
         self.filename = sixbit_word12_to_asc(n1) + sixbit_word12_to_asc(n2)
         self.program_type = flags >> 10
-        self.high_core_addr = (flags >> 7) & 0o7
+        self.dms_high_core_addr = (flags >> 7) & 0o7
         self.file_number = flags & 0o77
         self.system_program = bool(flags >> 6 & 1)
         return self
@@ -680,16 +681,16 @@ class DMSDirectoryEntry(AbstractDirectoryEntry):
         """
         Write the directory entry
         """
-        flags = self.program_type << 10 | self.high_core_addr << 7 | self.system_program << 6 | self.file_number
+        flags = self.program_type << 10 | self.dms_high_core_addr << 7 | self.system_program << 6 | self.file_number
         return [
             asc_to_sixbit_word12(self.filename[0:2]),
             asc_to_sixbit_word12(self.filename[2:4]),
-            self.low_core_addr & 0o7777,
-            self.entry_point & 0o7777,
+            self.dms_low_core_addr & 0o7777,
+            self.dms_entry_point & 0o7777,
             flags & 0o7777,
         ]
 
-    def read_bytes(self, file_mode: t.Optional[str] = None) -> bytes:
+    def read_bytes(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> bytes:
         """Get the content of the file"""
         if file_mode is None:
             if self.program_type == FILE_TYPE_ASCII:
@@ -731,13 +732,13 @@ class DMSDirectoryEntry(AbstractDirectoryEntry):
     def get_blocks(self) -> t.List[int]:
         return self.sam.files_blocks.get(self.file_number, [])
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return len(self.get_blocks())
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -763,12 +764,12 @@ class DMSDirectoryEntry(AbstractDirectoryEntry):
         else:
             self.sam.free_space(self.file_number)
             self.sam.write()
-            self.low_core_addr = 0
-            self.entry_point = 0
+            self.dms_low_core_addr = 0
+            self.dms_entry_point = 0
             self.filename = ""
             self.file_number = EMPTY_FILE_NUMBER
             self.system_program = False
-            self.high_core_addr = 0
+            self.dms_high_core_addr = 0
             self.program_type = 0
             self.dn.write()
             return True
@@ -780,14 +781,14 @@ class DMSDirectoryEntry(AbstractDirectoryEntry):
         self.dn.write()
         return True
 
-    def open(self, file_mode: t.Optional[str] = None) -> DMSFile:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> DMSFile:
         """
         Open a file
         """
         return DMSFile(self, file_mode)
 
     def __str__(self) -> str:
-        return f"{self.fullname:<14} #{self.file_number:02d}  {self.low_core_addr:04o}  {self.entry_point:>04o}  {self.high_core_addr:>o}"
+        return f"{self.fullname:<14} #{self.file_number:02d}  {self.dms_low_core_addr:04o}  {self.dms_entry_point:>04o}  {self.dms_high_core_addr:>o}"
 
     def __repr__(self) -> str:
         return str(self)
@@ -997,8 +998,13 @@ class DMSFilesystem(AbstractFilesystem):
     fs_name = "dms"
     fs_description = "PDP-8 4k Disk Monitor System"
     fs_platforms = ["pdp-8"]
-    dev: BlockDevice12Bit
+    fs_entry_metadata = [
+        "dms_low_core_addr",
+        "dms_high_core_addr",
+        "dms_entry_point",
+    ]
 
+    dev: BlockDevice12Bit
     dectape: bool = False  # DECtape device
     version_string: str  # Version
     first_scratch_block_number: int  # First scratch block number
@@ -1097,7 +1103,7 @@ class DMSFilesystem(AbstractFilesystem):
                     return entry
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), fullname)
 
-    def read_bytes(self, fullname: str, file_mode: t.Optional[str] = None) -> bytes:
+    def read_bytes(self, fullname: str, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> bytes:
         """Get the content of a file"""
         if file_mode is None:
             dms_filename = DMSFilename(fullname)
@@ -1119,13 +1125,14 @@ class DMSFilesystem(AbstractFilesystem):
         self,
         fullname: str,
         content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
+        fork: t.Optional[str] = None,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
         file_mode: t.Optional[str] = None,
     ) -> None:
         """
         Write content to a file
         """
+        metadata = metadata or {}
         dms_filename = DMSFilename(fullname)
         if file_mode is None:
             if dms_filename.program_type == FILE_TYPE_ASCII:
@@ -1142,8 +1149,8 @@ class DMSFilesystem(AbstractFilesystem):
             # Convert IMAGE => words
             words = from_bytes_to_12bit_words(content, file_mode=IMAGE)
         # Allocate space
-        number_of_blocks = int(math.ceil(len(words) * 1.0 / DATA_BLOCK_SIZE_WORDS))
-        entry = self.create_file(fullname, number_of_blocks, creation_date, file_type)
+        metadata["number_of_words"] = len(words)
+        entry = self.create_file(fullname, len(content), metadata)
         # Write blocks
         blocks = entry.get_blocks()
         for i, block in enumerate(blocks):
@@ -1156,20 +1163,24 @@ class DMSFilesystem(AbstractFilesystem):
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
     ) -> DMSDirectoryEntry:
         """
-        Create a new file with a given length in number of blocks
+        Create a new file
         """
         # Delete the file if it already exists
+        metadata = metadata or {}
+        number_of_words: int = metadata.get("number_of_words")  # type: ignore
         dms_filename = DMSFilename(fullname)
         try:
             self.get_file_entry(fullname).delete()
         except FileNotFoundError:
             pass
+        if number_of_words is None:
+            number_of_words = (size + BYTES_PER_WORD - 1) // BYTES_PER_WORD
         # Allocate space
+        number_of_blocks = (number_of_words + DATA_BLOCK_SIZE_WORDS - 1) // DATA_BLOCK_SIZE_WORDS
         sam = StorageAllocationMap.read(self)
         file_number = sam.allocate_space(fullname, number_of_blocks)
         # Create entry
@@ -1181,9 +1192,9 @@ class DMSFilesystem(AbstractFilesystem):
                 entry.file_number = file_number
                 entry.program_type = dms_filename.program_type
                 entry.system_program = dms_filename.system_program
-                entry.high_core_addr = (dms_filename.core_addr >> 12) & 0o7
-                entry.low_core_addr = dms_filename.core_addr & 0o7777
-                entry.entry_point = dms_filename.entry_point
+                entry.dms_high_core_addr = (dms_filename.core_addr >> 12) & 0o7
+                entry.dms_low_core_addr = dms_filename.core_addr & 0o7777
+                entry.dms_entry_point = dms_filename.entry_point
                 dn.entries[file_number] = entry
                 dn.write()
                 break
@@ -1191,12 +1202,6 @@ class DMSFilesystem(AbstractFilesystem):
             raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC), fullname)
         sam.write()
         return entry
-
-    def isdir(self, fullname: str) -> bool:
-        return False
-
-    def chdir(self, fullname: str) -> bool:
-        return False
 
     def read_directory_name_blocks(
         self, sam: t.Optional["StorageAllocationMap"] = None
@@ -1238,7 +1243,7 @@ class DMSFilesystem(AbstractFilesystem):
             else:
                 # Filename, extension, core bank (for SYS/USER files) and length in blocks (in octal)
                 if x.program_type == FILE_TYPE_SYS_USER:
-                    fullname = f"{x.filename:<4}.{x.extension:<4}({x.high_core_addr:>o})"
+                    fullname = f"{x.filename:<4}.{x.extension:<4}({x.dms_high_core_addr:>o})"
                 else:
                     fullname = f"{x.filename:<4}.{x.extension:<7}"
                 sys.stdout.write(f"{fullname} {x.get_length():>04o}\n")
@@ -1265,7 +1270,13 @@ class DMSFilesystem(AbstractFilesystem):
             for dn in self.read_directory_name_blocks():
                 sys.stdout.write(f"{dn}\n")
 
-    def dump(self, fullname: t.Optional[str], start: t.Optional[int] = None, end: t.Optional[int] = None) -> None:
+    def dump(
+        self,
+        fullname: t.Optional[str],
+        start: t.Optional[int] = None,
+        end: t.Optional[int] = None,
+        fork: t.Optional[str] = None,
+    ) -> None:
         """Dump the content of a file or a range of blocks"""
         if fullname:
             entry = self.get_file_entry(fullname)
@@ -1331,9 +1342,9 @@ class DMSFilesystem(AbstractFilesystem):
                 entry.file_number = RESERVED_FILE_NUMBER
                 entry.program_type = FILE_TYPE_SYS_USER
                 entry.system_program = True
-                entry.high_core_addr = 0
-                entry.low_core_addr = 0o7000
-                entry.entry_point = 0o7000
+                entry.dms_high_core_addr = 0
+                entry.dms_low_core_addr = 0o7000
+                entry.dms_entry_point = 0o7000
                 dn.entries[entry.file_number] = entry
             if i < len(dn_blocks) - 1:
                 dn.next_directory_name_block = dn_blocks[i + 1]
@@ -1346,12 +1357,6 @@ class DMSFilesystem(AbstractFilesystem):
         Get filesystem size in bytes
         """
         return self.dev.get_size()
-
-    def close(self) -> None:
-        self.dev.close()
-
-    def get_pwd(self) -> str:
-        return ""
 
     def get_types(self) -> t.List[str]:
         """

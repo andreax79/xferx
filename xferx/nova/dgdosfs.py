@@ -20,7 +20,6 @@
 
 import errno
 import functools
-import math
 import operator
 import os
 import struct
@@ -638,6 +637,7 @@ class UserFileDescriptor(AbstractDirectoryEntry):
     https://bitsavers.trailing-edge.com/pdf/dg/software/rdos/093-400027-00_RDOS_SystemReference_Oct83.pdf
     """
 
+    fs: "DGDOSFilesystem"
     sys_dir_block: "SystemDirectoryBlock"
     parent: t.Optional["UserFileDescriptor"]  # Parent directory/partition
     filename: str = ""
@@ -657,6 +657,7 @@ class UserFileDescriptor(AbstractDirectoryEntry):
     target: str = ""  # link target
 
     def __init__(self, sys_dir_block: "SystemDirectoryBlock", parent: t.Optional["UserFileDescriptor"] = None):
+        self.fs = sys_dir_block.fs
         self.sys_dir_block = sys_dir_block
         self.parent = parent
 
@@ -854,13 +855,6 @@ class UserFileDescriptor(AbstractDirectoryEntry):
             )
 
     @property
-    def fs(self) -> "DGDOSFilesystem":
-        """
-        Get the filesystem
-        """
-        return self.sys_dir_block.fs
-
-    @property
     def is_random(self) -> bool:
         """
         Check if the file is random organized
@@ -931,7 +925,7 @@ class UserFileDescriptor(AbstractDirectoryEntry):
         """
         return rdos_to_date(self.last_modification_date, self.last_modification_time)
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
@@ -940,7 +934,7 @@ class UserFileDescriptor(AbstractDirectoryEntry):
         else:
             return self.number_of_last_block + 1
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -1042,9 +1036,9 @@ class UserFileDescriptor(AbstractDirectoryEntry):
                 "Blocks": list(self.blocks()),
             }
         data["Filename hash"] = self.filename_hash()
-        return dump_struct(data) + "\n"
+        return dump_struct(data, format_label=True, newline=True)
 
-    def open(self, file_mode: t.Optional[str] = None) -> DGDOSFile:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> DGDOSFile:
         """
         Open a file
         """
@@ -1363,6 +1357,12 @@ class DGDOSFilesystem(AbstractBlockFilesystem):
     fs_name = "rdos"
     fs_description = "Data General Nova DOS/RDOS Filesystem"
     fs_platforms = ["nova"]
+    fs_entry_metadata = [
+        "attributes",
+        "creation_date",
+        "last_access",
+        "link_access_attributes",
+    ]
 
     double_addressing: bool = False  # Disk requires double addressing
     top_loader: bool = False  # Disk is a top loader
@@ -1542,44 +1542,36 @@ class DGDOSFilesystem(AbstractBlockFilesystem):
         self,
         fullname: str,
         content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
+        fork: t.Optional[str] = None,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
         file_mode: t.Optional[str] = None,
     ) -> None:
         """
         Write content to a file
         """
-        raw_file_type = rdos_get_file_type_id(file_type)
-        # Determine the number of blocks
-        if raw_file_type == SEQUENTIAL_FILE_TYPE:
-            block_size = SEQENTIAL_BLOCK_SIZE_LARGE_DISK if self.double_addressing else SEQENTIAL_BLOCK_SIZE
-        else:
-            block_size = BLOCK_SIZE
-        number_of_blocks = int(math.ceil(len(content) * 1.0 / block_size))
         # Create the file
         entry = self.create_file(
             fullname=fullname,
-            number_of_blocks=number_of_blocks,
-            creation_date=creation_date,
-            file_type=file_type,
-            length_bytes=len(content),
+            size=len(content),
+            metadata=metadata or {},
         )
         # Write the content to the file
-        if entry is not None:
-            with entry.open(file_mode) as f:
-                f.write(content)
+        with entry.open(file_mode) as f:
+            f.write(content)
 
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
-        length_bytes: t.Optional[int] = None,  # optional length in bytes
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
     ) -> UserFileDescriptor:
         """
         Create a new file with a given length in number of blocks
         """
+        metadata = metadata or {}
+        file_type: t.Optional[str] = metadata.get("file_type")  # type: ignore
+        creation_date: t.Optional[date] = metadata.get("creation_date")  # type: ignore
+        raw_file_type = rdos_get_file_type_id(file_type)
         fullname = rdos_normpath(fullname, self.pwd)
         dirname, filename = unix_split(fullname)
         # Delete the file if it already exists
@@ -1592,6 +1584,12 @@ class DGDOSFilesystem(AbstractBlockFilesystem):
             parent: UserFileDescriptor = self.get_file_entry(dirname)
         except FileNotFoundError:
             raise NotADirectoryError(errno.ENOTDIR, os.strerror(errno.ENOTDIR), dirname)
+        # Determine the number of blocks
+        if raw_file_type == SEQUENTIAL_FILE_TYPE:
+            block_size = SEQENTIAL_BLOCK_SIZE_LARGE_DISK if self.double_addressing else SEQENTIAL_BLOCK_SIZE
+        else:
+            block_size = BLOCK_SIZE
+        number_of_blocks = (size + block_size - 1) // block_size
         # Create the file
         bitmap = self.read_bitmap(parent)
         entry = UserFileDescriptor.create(
@@ -1604,7 +1602,7 @@ class DGDOSFilesystem(AbstractBlockFilesystem):
             # access=access if access is not None else DEFAULT_ACCESS,
             file_type=file_type,
             # aux_type=aux_type if aux_type is not None else 0,
-            length_bytes=length_bytes if length_bytes is not None else number_of_blocks * BLOCK_SIZE,
+            length_bytes=size,
         )
         bitmap.write()
         return entry
@@ -1671,7 +1669,13 @@ class DGDOSFilesystem(AbstractBlockFilesystem):
             entry = self.get_file_entry(arg)  # type: ignore
             sys.stdout.write(entry.examine())
 
-    def dump(self, fullname: t.Optional[str], start: t.Optional[int] = None, end: t.Optional[int] = None) -> None:
+    def dump(
+        self,
+        fullname: t.Optional[str],
+        start: t.Optional[int] = None,
+        end: t.Optional[int] = None,
+        fork: t.Optional[str] = None,
+    ) -> None:
         """Dump the content of a file or a range of blocks"""
         if fullname:
             if start is None:

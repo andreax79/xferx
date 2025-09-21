@@ -5,6 +5,8 @@ import pytest
 
 from xferx.commons import ASCII, IMAGE
 from xferx.pdp8.dmsfs import (
+    BYTES_PER_WORD,
+    DATA_BLOCK_SIZE_WORDS,
     FILE_TYPE_ASCII,
     FILE_TYPE_SYS_USER,
     DirectorNameBlock,
@@ -182,13 +184,14 @@ def test_sam():
 
 def test_directory_entry():
     t = [3113, 3072, 0, 512, 3138]
-    d = DMSDirectoryEntry.read(None, None, t, 0)
+    dn = DirectorNameBlock(None)
+    d = DMSDirectoryEntry.read(dn, None, t, 0)
     assert d.filename == "PIP "
     assert d.extension == "SYS"
     assert d.file_number == 2
-    assert d.low_core_addr == 0
-    assert d.entry_point == 0o1000
-    assert d.high_core_addr == 0
+    assert d.dms_low_core_addr == 0
+    assert d.dms_entry_point == 0o1000
+    assert d.dms_high_core_addr == 0
     assert d.system_program
     assert d.program_type == FILE_TYPE_SYS_USER
     assert d.to_words() == t
@@ -260,9 +263,9 @@ def test_directory_name_block():
     assert d.filename == "PIP "
     assert d.extension == "SYS"
     assert d.file_number == 2
-    assert d.low_core_addr == 0
-    assert d.entry_point == 0o1000
-    assert d.high_core_addr == 0
+    assert d.dms_low_core_addr == 0
+    assert d.dms_entry_point == 0o1000
+    assert d.dms_high_core_addr == 0
     assert d.system_program
     assert d.program_type == FILE_TYPE_SYS_USER
     assert d.get_length() == 21
@@ -270,7 +273,8 @@ def test_directory_name_block():
     assert 2 in sam.files_blocks
     with pytest.raises(FileNotFoundError):
         fs.get_file_entry("XXX.SYS")
-    d2 = fs.create_file("TEST.ASCII", 7)
+    d2 = fs.create_file("TEST.ASCII", 7 * BYTES_PER_WORD * DATA_BLOCK_SIZE_WORDS)
+    assert d2.get_length() == 7
     assert d2.program_type == FILE_TYPE_ASCII
     assert fs.free() == 39 - 7
     sam = StorageAllocationMap.read(fs)
@@ -283,10 +287,8 @@ def test_directory_name_block():
 
 
 def test_dms():
-    with open(f"{DSK}.mo", "wb") as f:
-        f.truncate(65534)
-
     shell = Shell(verbose=True)
+    shell.onecmd(f"create /allocate:65534 {DSK}.mo", batch=True)
     shell.onecmd(f"mount t: /dms {DSK}", batch=True)
     fs = shell.volumes.get_volume('T')
     assert isinstance(fs, DMSFilesystem)
@@ -328,9 +330,9 @@ def test_dms():
     assert e1 is not None
     assert e1.filename == "AAAA"
     assert e1.extension == "USER"
-    assert e1.low_core_addr == 0o777
-    assert e1.high_core_addr == 0
-    assert e1.entry_point == 0o5555
+    assert e1.dms_low_core_addr == 0o777
+    assert e1.dms_high_core_addr == 0
+    assert e1.dms_entry_point == 0o5555
 
     x1 = fs.read_bytes("aaaa.user")
     assert b"abcdefghijklmnopqrstuvwxyz" in x1
@@ -401,9 +403,7 @@ def test_dms_write_file():
 def test_dms_dectape():
     shell = Shell(verbose=True)
     shell.onecmd(f"create /allocate:743 {DSK}_3.mo", batch=True)
-    with open(f"{DSK}.mo", "wb") as f:
-        f.truncate(380292)
-
+    shell.onecmd(f"create /allocate:380292 {DSK}.mo", batch=True)
     shell.onecmd(f"mount src: /dms {DSK}", batch=True)
     fs = shell.volumes.get_volume('SRC')
     assert isinstance(fs, DMSFilesystem)
@@ -433,9 +433,9 @@ def test_dms_dectape():
     assert e1 is not None
     assert e1.filename == "AAAA"
     assert e1.extension == "USER"
-    assert e1.low_core_addr == 0o777
-    assert e1.high_core_addr == 0
-    assert e1.entry_point == 0o5555
+    assert e1.dms_low_core_addr == 0o777
+    assert e1.dms_high_core_addr == 0
+    assert e1.dms_entry_point == 0o5555
 
     x1 = fs.read_bytes("aaaa.user")
     assert b"abcdefghijklmnopqrstuvwxyz" in x1

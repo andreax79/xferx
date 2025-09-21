@@ -24,7 +24,6 @@ import math
 import os
 import sys
 import typing as t
-from datetime import date
 from functools import reduce
 
 from ..abstract import AbstractFile
@@ -563,13 +562,13 @@ class UNIX0Inode(UNIXInode):
         """
         return V0_BLOCK_SIZE
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
         return self.size * V0_IO_BYTES_PER_WORD
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
@@ -644,7 +643,7 @@ class UNIX0DirectoryEntry(UNIXDirectoryEntry):
         else:
             return False
 
-    def open(self, file_mode: t.Optional[str] = None) -> UNIX0File:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> UNIX0File:
         """
         Open the file
         """
@@ -890,6 +889,11 @@ class UNIX0Filesystem(UNIXFilesystem):
     fs_name = "unix0"
     fs_description = "UNIX version 0"
     fs_platforms = ["pdp-7"]
+    fs_entry_metadata = [
+        "unix_flags",
+        "unix_uid",
+    ]
+
     version: int = 0
     directory_class = UNIX0Directory
     storage_map_block: int = 0  # First block of the free-storage map
@@ -1019,40 +1023,35 @@ class UNIX0Filesystem(UNIXFilesystem):
         self,
         fullname: str,
         content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
+        fork: t.Optional[str] = None,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
         file_mode: t.Optional[str] = None,
-        access: int = V0_DEFAULT_ACCESS,  # optional access
     ) -> None:
         """
         Write content to a file
         """
+        metadata = metadata or {}
         words = from_bytes_to_18bit_words(content, file_mode or IMAGE)
-        number_of_blocks = int(math.ceil(len(words) / V0_WORDS_PER_BLOCK))
+        metadata["number_of_words"] = len(words)
+        metadata["number_of_blocks"] = (len(words) + V0_WORDS_PER_BLOCK - 1) // V0_WORDS_PER_BLOCK
         # Create the file entry
-        entry = self.create_file(
-            fullname=fullname,
-            number_of_blocks=number_of_blocks,
-            creation_date=creation_date,
-            file_type=file_type,
-        )
+        entry = self.create_file(fullname=fullname, size=len(content), metadata=metadata)
         with entry.open(file_mode) as f:
-            f.write_words_block(words, block_number=0, number_of_blocks=number_of_blocks)  # type: ignore
+            f.write_words_block(words, block_number=0, number_of_blocks=metadata["number_of_blocks"])  # type: ignore
 
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,  # optional file type
-        access: int = V0_DEFAULT_ACCESS,  # optional access
-        number_of_words: t.Optional[int] = None,  # optional length in words
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
     ) -> UNIXDirectoryEntry:
         """
         Create a new file with a given length in number of blocks
         """
+        metadata = metadata or {}
+        number_of_words: int = metadata.get("number_of_words")  # type: ignore
         if number_of_words is None:
-            number_of_words = number_of_blocks * V0_WORDS_PER_BLOCK
+            number_of_words = (size + V0_IO_BYTES_PER_WORD - 1) // V0_IO_BYTES_PER_WORD
         fullname = unix_join(self.pwd, fullname)
         dirname, filename = unix_split(fullname)
         # Delete the file if it already exists
@@ -1066,7 +1065,9 @@ class UNIX0Filesystem(UNIXFilesystem):
         except FileNotFoundError:
             raise NotADirectoryError(errno.ENOTDIR, os.strerror(errno.ENOTDIR), dirname)
         # Allocate a new inode and the data blocks for it
-        inode = UNIX0Inode.allocate(self, number_of_blocks=number_of_blocks, size=number_of_words, flags=access)
+        number_of_blocks = (number_of_words + V0_WORDS_PER_BLOCK - 1) // V0_WORDS_PER_BLOCK
+        flags: int = metadata.get("unix_flags", V0_DEFAULT_ACCESS)  # type: ignore
+        inode = UNIX0Inode.allocate(self, number_of_blocks=number_of_blocks, size=number_of_words, flags=flags)
         # Creates a new hard link
         return UNIX0DirectoryEntry.link(fs=self, parent=parent, filename=filename, inode=inode)
 

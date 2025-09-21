@@ -392,13 +392,13 @@ class DGDOSDumpEntry(AbstractDirectoryEntry):
         """
         return rdos_to_date(self.last_modification_date, self.last_modification_time)
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return int(math.ceil(self.size / self.block_size))
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -456,9 +456,9 @@ class DGDOSDumpEntry(AbstractDirectoryEntry):
                 "Permanent": self.attributes & ATPER != 0,
                 "Link attributes": format_attr(self.link_access_attributes),
             }
-        return dump_struct(data) + "\n"
+        return dump_struct(data, newline=True, format_label=False)
 
-    def open(self, file_mode: t.Optional[str] = None) -> DGDOSDumpFile:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> DGDOSDumpFile:
         """
         Open a file
         """
@@ -497,6 +497,11 @@ class DGDOSDumpFilesystem(AbstractFilesystem):
     fs_name = "dump"
     fs_description = "Data General DOS/RDOS DUMP"
     fs_platforms = ["nova"]
+    fs_entry_metadata = [
+        "attributes",
+        "creation_date",
+        "last_access",
+    ]
 
     f: "AbstractFile"
     pwd: str = "/"  # Current working directory
@@ -588,35 +593,6 @@ class DGDOSDumpFilesystem(AbstractFilesystem):
         if entry is None:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), fullname)
         return entry
-
-    def write_bytes(
-        self,
-        fullname: str,
-        content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
-        file_mode: t.Optional[str] = None,
-    ) -> None:
-        """
-        Write content to a file
-        """
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
-
-    def create_file(
-        self,
-        fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
-        length_bytes: t.Optional[int] = None,  # optional length in bytes
-    ) -> DGDOSDumpEntry:
-        """
-        Create a new file with a given length in number of blocks
-        """
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
-
-    def isdir(self, fullname: str) -> bool:
-        return False
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         for x in self.filter_entries_list(pattern, include_all=True, wildcard=True):

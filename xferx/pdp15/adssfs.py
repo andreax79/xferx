@@ -23,7 +23,6 @@ import os
 import sys
 import typing as t
 from dataclasses import dataclass
-from datetime import date
 
 from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
 from ..commons import (
@@ -479,6 +478,7 @@ class ADSSDirectoryEntry(AbstractDirectoryEntry):
 
     """
 
+    fs: "ADSSFilesystem"
     directory: "ADSSDirectory"
     file_number: int = 0  # File number in the directory
     filename: str  # Filename
@@ -486,6 +486,7 @@ class ADSSDirectoryEntry(AbstractDirectoryEntry):
     raw_data_link: int = 0  # Raw data link (active bit, block number)
 
     def __init__(self, directory: "ADSSDirectory"):
+        self.fs = directory.fs
         self.directory = directory
 
     @classmethod
@@ -623,7 +624,7 @@ class ADSSDirectoryEntry(AbstractDirectoryEntry):
             for block_content in self.get_block_contents():
                 yield block_content.block
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
@@ -635,7 +636,7 @@ class ADSSDirectoryEntry(AbstractDirectoryEntry):
         else:
             return self.get_file_bitmap().used()
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -712,13 +713,13 @@ class ADSSDirectoryEntry(AbstractDirectoryEntry):
         self.write()
         return blocks
 
-    def open(self, file_type: t.Optional[str] = None) -> ADSSFile:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> ADSSFile:
         """
         Open a file
         """
-        return ADSSFile(self, file_type)
+        return ADSSFile(self, file_mode)
 
-    def read_bytes(self, file_mode: t.Optional[str] = None) -> bytes:
+    def read_bytes(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> bytes:
         """Get the content of the file"""
         file_mode = file_mode or get_file_mode(self.basename)
         result = bytearray()
@@ -728,10 +729,6 @@ class ADSSDirectoryEntry(AbstractDirectoryEntry):
             else:
                 result.extend(decode_block_format(block.words))
         return bytes(result)
-
-    @property
-    def fs(self) -> "ADSSFilesystem":
-        return self.directory.fs
 
     def __str__(self) -> str:
         return f"{self.file_number:>2}  {self.filename:<6} {self.extension:<3}  {self.raw_data_link:06o} {'N' if self.is_empty else 'Y'}  {self.block_number:4}"
@@ -1219,6 +1216,10 @@ class ADSSFilesystem(AbstractFilesystem):
     fs_name = "adss"
     fs_description = "PDP-15 Advanced Monitor Software System"
     fs_platforms = ["pdp-9", "pdp-15"]
+    fs_entry_metadata = [
+        "is_sys",
+    ]
+
     is_system_tape: bool = False  # System tape
     dev: BlockDevice18Bit
 
@@ -1317,13 +1318,16 @@ class ADSSFilesystem(AbstractFilesystem):
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
     ) -> "ADSSDirectoryEntry":
         """
         Create a new file with a given length in number of blocks
         """
+        metadata = metadata or {}
+        number_of_blocks: t.Optional[int] = metadata.get("number_of_blocks", None)  # type: ignore
+        if number_of_blocks is None:
+            number_of_blocks = (size + (WORDS_PER_BLOCK - 2) * 3) // ((WORDS_PER_BLOCK - 1) * 3)
         fullname = adss_canonical_filename(fullname)
         # If the file already exists, delete it
         try:
@@ -1346,19 +1350,20 @@ class ADSSFilesystem(AbstractFilesystem):
         self,
         fullname: str,
         content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
+        fork: t.Optional[str] = None,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
         file_mode: t.Optional[str] = None,
     ) -> None:
         """
         Write content to a file
         """
+        metadata = metadata or {}
         fullname = adss_canonical_filename(fullname)
         file_mode = file_mode or get_file_mode(fullname)
         blocks_content = list(encode_block_format(bytes(content), file_mode, words_per_block=WORDS_PER_BLOCK - 1))
-        number_of_blocks = len(blocks_content)
+        metadata["number_of_blocks"] = len(blocks_content)
         # Create the file entry
-        entry = self.create_file(fullname, number_of_blocks, creation_date, file_type)
+        entry = self.create_file(fullname, len(content), metadata)
         # Write the file content
         for block, block_content in zip(entry.get_block_contents(), blocks_content):
             assert len(block_content) == WORDS_PER_BLOCK - 1
@@ -1460,7 +1465,13 @@ class ADSSFilesystem(AbstractFilesystem):
                         f"{entry.raw_data_link:06o} {block_number:>8}  {length:>4}  {ftype}\n"
                     )
 
-    def dump(self, fullname: t.Optional[str], start: t.Optional[int] = None, end: t.Optional[int] = None) -> None:
+    def dump(
+        self,
+        fullname: t.Optional[str],
+        start: t.Optional[int] = None,
+        end: t.Optional[int] = None,
+        fork: t.Optional[str] = None,
+    ) -> None:
         """
         Dump the content of a file or a range of blocks
         """

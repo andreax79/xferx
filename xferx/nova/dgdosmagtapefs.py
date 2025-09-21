@@ -187,13 +187,13 @@ class DGDOSMagTapeDirectoryEntry(AbstractDirectoryEntry):
     def basename(self) -> str:
         return f"{self.file_number}"
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return self.length
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -226,7 +226,7 @@ class DGDOSMagTapeDirectoryEntry(AbstractDirectoryEntry):
         """
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
-    def open(self, file_mode: t.Optional[str] = None) -> DGDOSMagTapeFile:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> DGDOSMagTapeFile:
         """
         Open a file
         """
@@ -265,6 +265,10 @@ class DGDOSMagTapeFilesystem(AbstractFilesystem):
     fs_name = "dgdosmt"
     fs_description = "Data General DOS/RDOS Magtape"
     fs_platforms = ["nova"]
+    fs_entry_metadata = [
+        "is_dump",
+    ]
+
     dev: Tape
 
     def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"]):
@@ -345,41 +349,6 @@ class DGDOSMagTapeFilesystem(AbstractFilesystem):
             return next(self.filter_entries_list(fullname, wildcard=False))
         except StopIteration:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), fullname)
-
-    def write_bytes(
-        self,
-        fullname: str,
-        content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
-        file_mode: t.Optional[str] = None,
-    ) -> None:
-        """
-        Write content to a file
-        """
-        number_of_blocks = int(math.ceil(len(content) * 1.0 / DATA_BLOCK_SIZE))
-        self.create_file(
-            fullname=fullname,
-            number_of_blocks=number_of_blocks,
-            creation_date=creation_date,
-            content=content,
-        )
-
-    def create_file(
-        self,
-        fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
-        content: t.Union[bytes, bytearray, None] = None,
-    ) -> DGDOSMagTapeDirectoryEntry:
-        """
-        Create a new file with a given length in number of blocks
-        """
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
-
-    def isdir(self, fullname: str) -> bool:
-        return False
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         pattern = pattern.upper() if pattern else None

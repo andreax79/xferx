@@ -4,7 +4,7 @@ XFERX
 XFERX is an utility for transferring files between various file systems.
 
 | Fs / Features     | Read file         | Write file        | Delete file       | Initialize        | Create dir/special|
-| ----------------- | ----------------- | ----------------- | ----------------- | ----------------- | ----------------- | 
+| ----------------- | ----------------- | ----------------- | ----------------- | ----------------- | ----------------- |
 | RT-11             | Yes               | Yes               | Yes               | Yes               | N/A               |
 | DOS-11            | Yes               | Yes               | Yes               | Yes               | Yes               |
 | DOS-11 DecTape    | Yes               | Yes               | Yes               | Yes               | No                |
@@ -14,7 +14,7 @@ XFERX is an utility for transferring files between various file systems.
 | Files-11          | Yes               | No                | No                | No                | No                |
 | SOLO              | Yes               | Yes               | Yes               | Yes               | N/A               |
 | PDP-7 UNIX v0     | Yes               | Yes               | Yes               | No                | Yes               |
-| PDP-7 DECSys      | Yes               | Yes               | Yes               | No                | No                |
+| PDP-7 DECsys      | Yes               | Yes               | Yes               | Yes               | N/A               |
 | PDP-9/15 ADSS     | Yes               | Yes               | Yes               | Yes               | N/A               |
 | PDP-15 DOS-15     | Yes               | No                | No                | No                | No                |
 | UNIX v1           | Yes               | No                | No                | No                | No                |
@@ -30,6 +30,7 @@ XFERX is an utility for transferring files between various file systems.
 | Apple II ProDOS   | Yes               | Yes               | Yes               | Yes               | Yes               |
 | Apple II Pascal   | Yes               | Yes               | Yes               | Yes               | N/A               |
 | Apple DOS 3.x     | Yes               | Yes               | Yes               | Yes               | N/A               |
+| MFS (Macintosh Filesystem)    | Yes               | No                | Yes               | Yes               | N/A               |
 | Data General DOS/RDOS         | Yes               | Yes               | Yes               | No                | No                |
 | Data General DOS/RDOS MagTape | Yes               | No                | No                | Yes               | N/A               |
 | Data General DOS/RDOS Dump    | Yes               | No                | No                | No                | No                |

@@ -24,7 +24,7 @@ import shlex
 import sys
 import typing as t
 
-from ..commons import ASCII, splitdrive
+from ..commons import ASCII, BLOCK_SIZE, dump_struct, splitdrive
 from ..volumes import DEFAULT_VOLUME, FILESYSTEMS
 from .commons import (
     CommandError,
@@ -34,6 +34,8 @@ from .commons import (
     copy_file,
     extract_options,
     get_int_option,
+    get_str_option,
+    parse_size,
     split_arguments,
 )
 
@@ -116,10 +118,15 @@ COPY            Copies files
         COPY [/options] [input-volume:]input-filespec [output-volume:][output-filespec]
 
   OPTIONS
-   ASCII                Copy as ASCII text
+   ASCII
+        Copy as ASCII text
    TYPE:type
         Specifies that the output file type, if supported by the target filesystem
         See the SHOW TYPES command for a list of filesystems.
+   FORK:name
+        Specifies the file fork to be copied, if supported by the filesystem
+   TO-FORK:name
+        Specifies the file fork to be created on the target filesystem
 
   EXAMPLES
         COPY *.TXT DK:
@@ -127,7 +134,7 @@ COPY            Copies files
 
     """
     # fmt: on
-    args, options = extract_options(args, "/ascii", "/type")
+    args, options = extract_options(args, "/ascii", "/type", "/fork", "/to-fork")
     if len(args) > 2:
         raise CommandError("?COPY-F-Too many arguments")
     file_mode = ASCII if options.get("ascii") else None
@@ -141,25 +148,26 @@ COPY            Copies files
         to = ask("To? ")
     to_volume_id, to = splitdrive(to)
     to_fs = context.volumes.get_volume(to_volume_id, cmd="COPY")
+    to_file_type = get_str_option(options, "type")
     from_len = len(list(from_fs.filter_entries_list(cfrom)))
     from_list = from_fs.filter_entries_list(cfrom)
-    file_type = options["type"].upper() if isinstance(options.get("type"), str) else None  # type: ignore
+    from_fork = get_str_option(options, "fork")
+    to_fork = get_str_option(options, "to-fork")
     if from_len == 0:  # No files
         raise CommandError("?COPY-F-No files")
     elif from_len == 1:  # One file to be copied
         source = list(from_list)[0]
         if not to:
-            to_pwd = context.volumes.get_volume(to_volume_id).get_pwd()
-            to_path = os.path.join(to_pwd, source.basename)
+            to_path = source.basename
         elif to and to_fs.isdir(to):
-            to_path = os.path.join(to, source.basename)
+            to_path = to_fs.path_join(to, source.basename)
         else:
             to_path = to
         from_entry = from_fs.get_file_entry(source.fullname)
         if not from_entry:
             raise CommandError(f"?COPY-F-Error copying {source.fullname}")
-        sys.stdout.write("%s:%s -> %s:%s\n" % (from_volume_id, source.fullname, to_volume_id, to_path))
-        copy_file(from_fs, from_entry, to_fs, to_path, file_type, file_mode, context.verbose, cmd="COPY")
+        sys.stderr.write("%s:%s -> %s:%s\n" % (from_volume_id, source.fullname, to_volume_id, to_path))
+        copy_file(from_entry, from_fork, to_fs, to_path, to_fork, to_file_type, file_mode, context.verbose, cmd="COPY")
     else:
         if not to:
             to = context.volumes.get_volume(to_volume_id).get_pwd()
@@ -167,11 +175,13 @@ COPY            Copies files
             raise CommandError("?COPY-F-Target must be a volume or a directory")
         for from_entry in from_fs.filter_entries_list(cfrom):
             if to:
-                to_path = os.path.join(to, from_entry.basename)
+                to_path = to_fs.path_join(to, from_entry.basename)  # TODO
             else:
                 to_path = from_entry.basename
-            sys.stdout.write("%s:%s -> %s:%s\n" % (from_volume_id, from_entry.fullname, to_volume_id, to_path))
-            copy_file(from_fs, from_entry, to_fs, to_path, file_type, file_mode, context.verbose, cmd="COPY")
+            sys.stderr.write("%s:%s -> %s:%s\n" % (from_volume_id, from_entry.fullname, to_volume_id, to_path))
+            copy_file(
+                from_entry, from_fork, to_fs, to_path, to_fork, to_file_type, file_mode, context.verbose, cmd="COPY"
+            )
 
 
 @cmds.register("DEL_ETE")
@@ -201,7 +211,7 @@ DELETE          Removes files from a volume
         ):  # don't expand directories
             match = True
             if not x.delete():
-                sys.stdout.write("?DELETE-F-Error deleting %s\n" % x.fullname)
+                sys.stderr.write("?DELETE-F-Error deleting %s\n" % x.fullname)
     if not match:
         raise CommandError("?DELETE-F-No files")
 
@@ -213,8 +223,9 @@ def examine(context: "ShellContext", args: t.List[str]) -> None:
 EXAMINE         Examines disk structure
 
   SYNTAX
-        EXAMINE volume:
+        EXAMINE [/options] volume:
 
+  OPTIONS
    FULL
         Lists the entire directory, including unused areas
 
@@ -244,21 +255,25 @@ DUMP            Prints formatted data dumps of files or devices
         Specifies the first block to be dumped
    END:block
         Specifies the last block to be dumped
+   FORK:name
+        Specifies the file fork to be dumped, if supported by the filesystem
 
   EXAMPLES
         DUMP A.OBJ
         DUMP /START:6 /END:6 DL0:
+        DUMP /FORK:RESOURCE "Read Me"
 
     """
     # fmt: on
-    args, options = extract_options(args, "/start", "/end")
+    args, options = extract_options(args, "/start", "/end", "/fork")
     start = get_int_option(options, "start")
     end = get_int_option(options, "end")
+    fork = get_str_option(options, "fork")
     if not args:
         args = ask("From? ").split()
     for arg in args:
         try:
-            context.volumes.dump(fullname=arg, start=start, end=end, cmd="DUMP")
+            context.volumes.dump(fullname=arg, start=start, end=end, cmd="DUMP", fork=fork)
         except FileNotFoundError:
             raise CommandError("?DUMP-F-File not found")
 
@@ -282,13 +297,15 @@ CREATE          Creates files or directories
    DIRECTORY
         Creates a directory
    ALLOCATE:size
-        Specifies the number of blocks to allocate to the created file
+        Specifies the size of the file to be allocated
+        Size is specified in bytes (B), blocks (default), kilobytes (K), or megabytes (M).
    TYPE:type
         Specifies the file type
         See the SHOW TYPES command for a list of filesystems.
 
   EXAMPLES
-        CREATE /ALLOCATE:200 NEW.DSK
+        CREATE /ALLOCATE:200 new.dsk
+        CREATE /ALLOCATE:10M disk_10m.dsk
 
     """
     # fmt: on
@@ -309,19 +326,20 @@ CREATE          Creates files or directories
         context.volumes.create_directory(fullname=path, options=options, cmd="CREATE")
     else:
         # Create a file
-        allocate = options.get("allocate")
-        if not allocate:
-            allocate = ask("Size? ")
+        metadata = {}
         try:
-            number_of_blocks = int(allocate)
-            if number_of_blocks < 0:
+            size = parse_size(options.get("allocate") or ask("Size? "))  # type: ignore
+            if size < 0:
                 raise ValueError
+            metadata["number_of_blocks"] = size // BLOCK_SIZE
         except:
             raise CommandError("?CREATE-F-Invalid value specified with option")
+        if options.get("type"):
+            metadata["file_type"] = options.get("type")  # type: ignore
         context.volumes.create_file(
             fullname=path,
-            number_of_blocks=number_of_blocks,
-            file_type=options.get("type") if isinstance(options.get("type"), str) else None,  # type: ignore
+            size=size,
+            metadata=metadata,
             cmd="CREATE",
         )
 
@@ -639,10 +657,25 @@ def show_filesystems(context: "ShellContext", args: t.List[str]) -> None:
 SHOW FILESYSTEMS  Show the supported filesystems
     """
     # fmt: on
-    sys.stdout.write("Filesystems\n")
-    sys.stdout.write("-----------\n")
-    for k, v in sorted(FILESYSTEMS.items()):  # type: ignore
-        sys.stdout.write(f"{k.upper():<10} {v.fs_description}\n")
+    if args[1:]:
+        for arg in args[1:]:
+            fs = FILESYSTEMS.get(arg.lower())
+            if fs:
+                data = {
+                    "Name": arg.upper(),
+                    "Description": fs.fs_description,
+                    "Platform": ",".join(fs.fs_platforms) if fs.fs_platforms else "Any",
+                    "Metadata": ",".join(fs.fs_entry_metadata),
+                    "Forks": ",".join(fs.fs_forks) if fs.fs_forks else "N/A",
+                }
+                sys.stdout.write(dump_struct(data, newline=True, format_label=False))
+            else:
+                raise CommandError(f"?SHOW-FS-F-Unknown filesystem {arg}")
+    else:
+        sys.stdout.write("Filesystems\n")
+        sys.stdout.write("-----------\n")
+        for k, v in sorted(FILESYSTEMS.items()):  # type: ignore
+            sys.stdout.write(f"{k.upper():<10} {v.fs_description}\n")
 
 
 @cmds.register("SHOW VE_RSION")

@@ -1,10 +1,9 @@
 import pytest
 
-from xferx.apple2.appledosfs import AppleDOSFilesystem
-from xferx.apple2.commons import (
+from xferx.apple.appledosfs import AppleDOSFilesystem
+from xferx.apple.commons import (
+    AppleSingle,
     ProDOSFileInfo,
-    decode_apple_single,
-    encode_apple_single,
 )
 from xferx.shell import Shell
 
@@ -74,11 +73,11 @@ def test_appledos_init_non_standard():
 def test_apple_single():
     info = ProDOSFileInfo(0xFF, 0x34, 0x5678)
     data = b"Hello, world!"
-    apple_single = encode_apple_single(info, data)
-    data2, _, info2 = decode_apple_single(apple_single)
-    assert info.access == info2.access
-    assert info.file_type == info2.file_type
-    assert info.aux_type == info2.aux_type
+    apple_single_b = AppleSingle(prodos_file_info=info, data=data).write()
+    apple_single = AppleSingle.read(apple_single_b)
+    assert info.access == apple_single.prodos_file_info.access
+    assert info.file_type == apple_single.prodos_file_info.file_type
+    assert info.aux_type == apple_single.prodos_file_info.aux_type
 
     shell = Shell(verbose=True)
     shell.onecmd(f"create {DSK}.mo /allocate:280", batch=True)
@@ -89,6 +88,6 @@ def test_apple_single():
     test1 = shell.volumes.get_file_entry("ou:ciao.apple2")
     assert test1.file_type == "B"
     apple_single3 = shell.volumes.read_bytes("ou:ciao.apple2")
-    _, _, info3 = decode_apple_single(apple_single3)
-    assert info3.file_type == 0x6
-    assert info3.aux_type == 0x2000
+    apple_single2 = AppleSingle.read(apple_single3)
+    assert apple_single2.prodos_file_info.file_type == 0x6
+    assert apple_single2.prodos_file_info.aux_type == 0x2000

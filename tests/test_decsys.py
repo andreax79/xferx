@@ -1,4 +1,6 @@
-from xferx.commons import IMAGE
+import pytest
+
+from xferx.commons import ASCII, IMAGE
 from xferx.pdp7.codes import (
     fiodec_to_str,
     read_baudot_string,
@@ -9,10 +11,12 @@ from xferx.pdp7.decsysfs import (  # LibraryDirectory,
     DECSysDirectoryEntry,
     DECSysFilesystem,
     ProgramDirectory,
+    from_18bit_words_to_bytes,
     from_bytes_to_18bit_words,
 )
+from xferx.shell import Shell
 
-# from xferx.shell import Shell
+DSK = "tests/dsk/decsys.dsk"
 
 
 class MockFilesytem(DECSysFilesystem):
@@ -64,7 +68,7 @@ def test_directory_entry():
     assert entry.file_type == "SYSTEM"
     assert entry.filename == "CONTEN"
     assert entry.block_number == 7
-    assert entry.starting_address == 63
+    assert entry.decsys_starting_address == 63
     assert entry.to_words() == t
 
     t = [1, 76838, 132224, 9, 64]
@@ -72,7 +76,7 @@ def test_directory_entry():
     assert entry.file_type == "SYSTEM"
     assert entry.filename == "LABEL"
     assert entry.block_number == 9
-    assert entry.starting_address == 63
+    assert entry.decsys_starting_address == 63
     assert entry.to_words() == t
 
     t = [2, 10280, 8192, 146, 147, 148]
@@ -91,7 +95,7 @@ def test_program_directory():
     # fmt: on
     fs = MockFilesytem({2: list(program_directory)})
     directory = ProgramDirectory.read(fs)
-    assert len(directory.entries) == 14
+    assert len(directory.entries) == 15
     assert directory.first_free_block == 157
     fs.write_words_block(2, [0] * 256)
     directory.write()
@@ -136,34 +140,68 @@ def test_fiodec():
     assert txt5 == txt6
 
 
-# DSK = "tests/dsk/unixv0.dsk"
-#
-#
-# def test_unix0_read():
-#     shell = Shell(verbose=True)
-#     shell.onecmd(f"mount t: /unix0 {DSK}", batch=True)
-#     fs = shell.volumes.get_volume('T')
-#     assert isinstance(fs, UNIX0Filesystem)
-#     assert fs.version == 0
-#
-#     shell.onecmd("dir t:", batch=True)
-#     shell.onecmd("dir t:/", batch=True)
-#     shell.onecmd("dir t:/system/", batch=True)
-#     shell.onecmd("type t:/system/password", batch=True)
-#
-#     x = fs.read_text("dd/data/9k")
-#     assert x.startswith("|")
-#
-#     l = list(fs.entries_list)
-#     filenames = [x.filename for x in l if not x.is_empty]
-#     assert "dd" in filenames
-#     assert "system" in filenames
-#
-#     entry = fs.get_file_entry("/test/a")
-#     assert not entry.inode.is_large
-#
-#     entry = fs.get_file_entry("/test/b")
-#     assert not entry.inode.is_large
-#
-#     entry = fs.get_file_entry("/test/c")
-#     assert entry.inode.is_large
+def test_decsys_write():
+    shell = Shell(verbose=True)
+    shell.onecmd(f"create /allocate:768 {DSK}_1.mo", batch=True)
+    shell.onecmd(f"init /decsys {DSK}_1.mo", batch=True)
+    shell.onecmd(f"mount ou: /decsys {DSK}_1.mo", batch=True)
+
+    # Create a FORTRAN source file
+    filename0 = "F,TEST"
+    data0 = b""
+    for i in range(0, 10):
+        data0 += f"{i:5d} ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890\n".encode("ascii")
+    data0 += b"\f"  # end of page
+    shell.volumes.write_bytes(f"ou:{filename0}", data0, file_mode=ASCII)
+
+    # Create an ASSEMBLER source file
+    filename1 = "A,TEST"
+    data1 = b"A" * 100 + b"\f"
+    shell.volumes.write_bytes(f"ou:{filename1}", data1, file_mode=ASCII)
+
+    x0 = shell.volumes.read_bytes(f"ou:{filename0}", file_mode=ASCII)
+    x0 = x0.rstrip(b"\0")
+    assert x0 == data0
+
+    # Create a binary file
+    filename3 = "B,TEST"
+    words = list([x for x in range(0, 1000)])
+    x1 = from_18bit_words_to_bytes(words, file_type=IMAGE)
+    shell.volumes.write_bytes(f"ou:{filename3}", x1, file_mode=IMAGE)
+
+    x2 = shell.volumes.read_bytes(f"ou:{filename3}", file_mode=IMAGE)
+    assert x1 == x2
+    assert from_bytes_to_18bit_words(x1, file_type=IMAGE) == words
+
+    # Create and delete a FORTRAN source file
+    filename4 = "F,TEST4"
+    shell.volumes.write_bytes(f"ou:{filename4}", data0, file_mode=ASCII)
+    assert shell.volumes.get_file_entry(f"ou:{filename4}") is not None
+
+    shell.onecmd(f"delete ou:{filename4}", batch=True)
+    with pytest.raises(Exception):
+        shell.volumes.get_file_entry(f"ou:{filename4}")
+
+    # Create a binary file
+    filename5 = "S,SYSFIL"
+    words = list([x for x in range(0, 1000)])
+    words[0] = 0x40000 - len(words) + 2  # Set the word count
+    x1 = from_18bit_words_to_bytes(words, file_type=IMAGE)
+    metadata = {"decsys_starting_address": 1234}
+    shell.volumes.write_bytes(f"ou:{filename5}", x1, file_mode=IMAGE, metadata=metadata)
+
+    x5 = shell.volumes.read_bytes(f"ou:{filename5}", file_mode=IMAGE)
+    assert len(x1) == len(x5)
+    assert x1 == x5
+    assert from_bytes_to_18bit_words(x1, file_type=IMAGE) == words
+    e5 = shell.volumes.get_file_entry(f"ou:{filename5}")
+    assert e5.metadata["decsys_starting_address"] == 1234
+
+    filename6 = "S,COPY"
+    shell.onecmd(f"copy ou:{filename5} ou:{filename6}", batch=True)
+    e6 = shell.volumes.get_file_entry(f"ou:{filename6}")
+    assert e6.metadata["decsys_starting_address"] == e5.metadata["decsys_starting_address"]
+    x6 = shell.volumes.read_bytes(f"ou:{filename6}", file_mode=IMAGE)
+    assert x1 == x6
+
+    shell.onecmd("ex ou:", batch=True)

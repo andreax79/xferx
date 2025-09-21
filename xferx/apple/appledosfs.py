@@ -24,7 +24,6 @@ import os
 import struct
 import sys
 import typing as t
-from datetime import date
 
 from ..abstract import AbstractDirectoryEntry, AbstractFile
 from ..commons import (
@@ -38,7 +37,7 @@ from ..commons import (
 )
 from ..device.abstract import AbstractDevice
 from .abstract import AbstractAppleDiskFilesystem
-from .commons import ProDOSFileInfo, decode_apple_single, encode_apple_single
+from .commons import AppleSingle, ProDOSFileInfo
 from .disk import SECTOR_SIZE
 
 __all__ = [
@@ -623,13 +622,15 @@ class AppleDOSCatalog:
         self,
         vtoc: "AppleDOSVTOC",
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        file_type: t.Optional[str],  # optional file type
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
     ) -> "AppleDOSDirectoryEntry":
         """
         Create a new file
         """
         # Allocate sectors
+        metadata = metadata or {}
+        number_of_blocks = (size + SECTOR_SIZE - 1) // SECTOR_SIZE
         trac_sector_list_num = max(math.ceil(number_of_blocks / DATA_SECTORS_PER_TRACK_SECTOR_LIST), 1)
         sectors = vtoc.allocate(number_of_blocks + trac_sector_list_num)
         trac_sector_list_sectors = sectors[:trac_sector_list_num]
@@ -665,7 +666,7 @@ class AppleDOSCatalog:
         entry.filename = appledos_canonical_filename(fullname)  # type: ignore
         entry.raw_filename = appledos_filename_to_raw_filename(fullname)  # type: ignore
         entry.length = number_of_blocks + trac_sector_list_num
-        entry.raw_file_type = appledos_get_raw_file_type(file_type)
+        entry.raw_file_type = appledos_get_raw_file_type(metadata.get("file_type"))
         return entry
 
     def __str__(self) -> str:
@@ -779,7 +780,7 @@ class AppleDOSDirectoryEntry(AbstractDirectoryEntry):
         """
         return FILE_TYPES.get(self.raw_file_type)
 
-    def read_bytes(self, file_mode: t.Optional[str] = None) -> bytes:
+    def read_bytes(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> bytes:
         """Get the content of the file"""
         data = super().read_bytes()
         if self.file_type == "B":
@@ -789,8 +790,11 @@ class AppleDOSDirectoryEntry(AbstractDirectoryEntry):
             # +------------------+-----------------+------------------
             # https://archive.org/details/beneath-apple-dos-prodos-2020/page/42/mode/2up
             address, length = struct.unpack_from(BINARY_FILE_FORMAT, data, 0)
-            prodos_file_info = ProDOSFileInfo(0xFF, PRODOS_BIN_FILE_TYPE, address)
-            data = encode_apple_single(prodos_file_info, data[struct.calcsize(BINARY_FILE_FORMAT) :])
+            prodos_file_info = ProDOSFileInfo(access=0xFF, file_type=PRODOS_BIN_FILE_TYPE, aux_type=address)
+            data = AppleSingle(
+                data=data[struct.calcsize(BINARY_FILE_FORMAT) :],
+                prodos_file_info=prodos_file_info,
+            ).write()
         elif self.file_type == "A" or self.file_type == "I":
             # Integer/Applesoft Basic File Format on Disk
             # +-----------------+--------------------------
@@ -834,13 +838,13 @@ class AppleDOSDirectoryEntry(AbstractDirectoryEntry):
     def basename(self) -> str:
         return self.filename
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in sectors
         """
         return self.length
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -886,7 +890,7 @@ class AppleDOSDirectoryEntry(AbstractDirectoryEntry):
                 return True
         return False
 
-    def open(self, file_mode: t.Optional[str] = None) -> AppleDOSFile:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> AppleDOSFile:
         """
         Open a file
         """
@@ -914,6 +918,10 @@ class AppleDOSFilesystem(AbstractAppleDiskFilesystem):
     fs_name = "appledos"
     fs_description = "Apple II DOS 3.x"
     fs_platforms = ["apple2"]
+    fs_entry_metadata = [
+        "file_type",
+        "is_locked",
+    ]
 
     catalog_address: TrackSector  # first catalog address
     number_of_tracks: int  # Number of tracks on disk
@@ -994,68 +1002,66 @@ class AppleDOSFilesystem(AbstractAppleDiskFilesystem):
         self,
         fullname: str,
         content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
+        fork: t.Optional[str] = None,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
         file_mode: t.Optional[str] = None,
     ) -> None:
         """
         Write content to a file
         """
         # Check if the file is an AppleSingle file and extract the content and metadata
+        metadata = metadata or {}
         try:
-            content, _, prodos_file_info = decode_apple_single(content)
-            if prodos_file_info is not None and file_type is None:
+            aps = AppleSingle.read(content)
+            if aps.data is None:
+                raise ValueError("Data fork not found")
+            content = aps.data
+            if aps.prodos_file_info is not None and not metadata.get("file_type"):
                 # Map ProDOS file type to DOS file type
-                if prodos_file_info.file_type == PRODOS_TXT_FILE_TYPE:
-                    file_type = "T"
-                elif prodos_file_info.file_type == PRODOS_BIN_FILE_TYPE:
+                if aps.prodos_file_info.file_type == PRODOS_TXT_FILE_TYPE:
+                    metadata["file_type"] = "T"
+                elif aps.prodos_file_info.file_type == PRODOS_BIN_FILE_TYPE:
                     # Binary File Format on Disk
                     # +------------------+-----------------+------------------
                     # | Address (2 byte) | Length (2 byte) | Memory image ...
                     # +------------------+-----------------+------------------
                     # https://archive.org/details/beneath-apple-dos-prodos-2020/page/42/mode/2up
-                    file_type = "B"
-                    header = struct.pack(BINARY_FILE_FORMAT, prodos_file_info.aux_type, len(content))
+                    metadata["file_type"] = "B"
+                    header = struct.pack(BINARY_FILE_FORMAT, aps.prodos_file_info.aux_type, len(content))
                     content = header + content
-                elif prodos_file_info.file_type in (PRODOS_INT_FILE_TYPE, PRODOS_BAS_FILE_TYPE):
+                elif aps.prodos_file_info.file_type in (PRODOS_INT_FILE_TYPE, PRODOS_BAS_FILE_TYPE):
                     # Integer/Applesoft Basic File Format on Disk
                     # +-----------------+--------------------------
                     # | Length (2 byte) | Program memory image ...
                     # +-----------------+--------------------------
                     # https://archive.org/details/beneath-apple-dos-prodos-2020/page/44/mode/2up
-                    if prodos_file_info.file_type == PRODOS_INT_FILE_TYPE:
-                        file_type = "I"
+                    if aps.prodos_file_info.file_type == PRODOS_INT_FILE_TYPE:
+                        metadata["file_type"] = "I"
                     else:
-                        file_type = "A"
+                        metadata["file_type"] = "A"
                     header = struct.pack(BASIC_FILE_FORMAT, len(content))
                     content = header + content
-                elif prodos_file_info.file_type == PRODOS_REL_FILE_TYPE:
-                    file_type = "R"
+                elif aps.prodos_file_info.file_type == PRODOS_REL_FILE_TYPE:
+                    metadata["file_type"] = "R"
         except ValueError:
             pass
 
-        number_of_blocks = int(math.ceil(len(content) / SECTOR_SIZE))
-        entry = self.create_file(
-            fullname=fullname,
-            number_of_blocks=number_of_blocks,
-            creation_date=creation_date,
-            file_type=file_type,
-        )
-        if entry is not None:
-            content = content + (b"\0" * SECTOR_SIZE)  # pad with zeros
-            with entry.open(file_mode) as f:
-                f.write_block(content, block_number=0, number_of_blocks=number_of_blocks)
+        entry = self.create_file(fullname=fullname, size=len(content), metadata=metadata)
+        number_of_blocks = (len(content) + SECTOR_SIZE - 1) // SECTOR_SIZE
+        content = content + (b"\0" * SECTOR_SIZE)  # pad with zeros
+        with entry.open(file_mode) as f:
+            f.write_block(content, block_number=0, number_of_blocks=number_of_blocks)
 
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,  # optional file type
-    ) -> t.Optional[AppleDOSDirectoryEntry]:
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
+    ) -> AppleDOSDirectoryEntry:
         """
         Create a new file
         """
+        metadata = metadata or {}
         fullname = appledos_canonical_filename(fullname)  # type: ignore
         try:
             self.get_file_entry(fullname).delete()
@@ -1063,21 +1069,10 @@ class AppleDOSFilesystem(AbstractAppleDiskFilesystem):
             pass
         vtoc = AppleDOSVTOC.read(self)
         catalog = AppleDOSCatalog.read(self)
-        entry = catalog.create_file(
-            vtoc=vtoc,
-            fullname=fullname,
-            number_of_blocks=number_of_blocks,
-            file_type=file_type,
-        )
+        entry = catalog.create_file(vtoc=vtoc, fullname=fullname, size=size, metadata=metadata)
         vtoc.write()
         catalog.write()
         return entry
-
-    def chdir(self, fullname: str) -> bool:
-        return False
-
-    def isdir(self, fullname: str) -> bool:
-        return False
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         if not options.get("brief"):
@@ -1108,18 +1103,19 @@ class AppleDOSFilesystem(AbstractAppleDiskFilesystem):
                     vtoc.__dict__,
                     exclude=["fs", "bitmaps"],
                     include=["catalog_address"],
+                    newline=True,
                 )
             )
-            sys.stdout.write("\n")
             catalog = AppleDOSCatalog.read(self)
             sys.stdout.write(
                 dump_struct(
                     catalog.__dict__,
                     exclude=["fs", "directory_entries"],
                     include=["catalog_address"],
+                    newline=True,
                 )
             )
-            sys.stdout.write("\n\nDirectory entries:\n")
+            sys.stdout.write("\nDirectory entries:\n")
             for i, entry in enumerate(catalog.directory_entries):
                 if not entry.is_empty:
                     sys.stdout.write(f"{i:>3}#  {entry}\n")
@@ -1129,12 +1125,18 @@ class AppleDOSFilesystem(AbstractAppleDiskFilesystem):
             entry_dict = dict(entry.__dict__)
             entry_dict["address"] = str(entry.address)
             entry_dict["blocks"] = list(entry.blocks())  # type: ignore
-            sys.stdout.write(dump_struct(entry_dict, exclude=["fs"]) + "\n")
+            sys.stdout.write(dump_struct(entry_dict, exclude=["fs"], newline=True))
             vtoc = AppleDOSVTOC.read(self)
             for sector in entry.blocks(include_indexes=True):
                 sys.stdout.write(f"Sector {sector} is {'free' if vtoc.is_free(sector) else 'used'}\n")
 
-    def dump(self, fullname: t.Optional[str], start: t.Optional[int] = None, end: t.Optional[int] = None) -> None:
+    def dump(
+        self,
+        fullname: t.Optional[str],
+        start: t.Optional[int] = None,
+        end: t.Optional[int] = None,
+        fork: t.Optional[str] = None,
+    ) -> None:
         """
         Dump the content of a file or a range of blocks
         """
@@ -1190,9 +1192,6 @@ class AppleDOSFilesystem(AbstractAppleDiskFilesystem):
         self.number_of_tracks = vtoc.number_of_tracks
         self.sectors_per_track = vtoc.sectors_per_track
         return self
-
-    def get_pwd(self) -> str:
-        return ""
 
     def get_types(self) -> t.List[str]:
         """

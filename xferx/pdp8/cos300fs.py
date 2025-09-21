@@ -221,7 +221,7 @@ class COS300DirectoryEntry(OS8DirectoryEntry):
         finally:
             self.extension = tmp
 
-    def read_bytes(self, file_mode: t.Optional[str] = None) -> bytes:
+    def read_bytes(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> bytes:
         """Get the content of the file"""
         is_source_file = self.extension == "S"  # Source file
         if file_mode is None:
@@ -259,6 +259,11 @@ class COS300Filesystem(OS8Filesystem):
     fs_name = "cos300"
     fs_description = "PDP-8 COS-300/COS-310"
     fs_platforms = ["pdp-8"]
+    fs_entry_metadata = [
+        "creation_date",
+        "file_type",
+    ]
+
     directory_entry_class: t.Type[OS8DirectoryEntry] = COS300DirectoryEntry
 
     def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"]):
@@ -309,7 +314,7 @@ class COS300Filesystem(OS8Filesystem):
             unused = part.free()
             sys.stdout.write(f" <{unused:>04} FREE BLOCKS>\n")
 
-    def read_bytes(self, fullname: str, file_mode: t.Optional[str] = None) -> bytes:
+    def read_bytes(self, fullname: str, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> bytes:
         """
         Get the content of a file
         """
@@ -329,13 +334,14 @@ class COS300Filesystem(OS8Filesystem):
         self,
         fullname: str,
         content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
+        fork: t.Optional[str] = None,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
         file_mode: t.Optional[str] = None,
     ) -> None:
         """
         Write content to a file
         """
+        metadata = metadata or {}
         is_source_file = split_ext(fullname)[1] == "S"  # Source file
         if file_mode is None:
             file_mode = ASCII if is_source_file else IMAGE
@@ -345,4 +351,4 @@ class COS300Filesystem(OS8Filesystem):
             content = from_12bit_words_to_bytes(words)
             # Always write the file as IMAGE
             file_mode = IMAGE
-        super().write_bytes(fullname, content, creation_date, file_type, file_mode)
+        super().write_bytes(fullname, content, fork, metadata, file_mode)

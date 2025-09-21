@@ -3,12 +3,12 @@ import pytest
 from xferx.pdp8.cos300fs import (
     COS300DirectoryEntry,
     COS300Filesystem,
-    OS8Segment,
     ascii_to_cos_codes,
     cos_codes_to_ascii,
     from_12bit_words_to_bytes,
     from_bytes_to_12bit_words,
 )
+from xferx.pdp8.os8fs import OS8Partition, OS8Segment
 from xferx.shell import Shell
 
 # fmt: off
@@ -66,9 +66,19 @@ def test_cos_codes_to_ascii():
     assert words == WORDS[: len(words)]
 
 
+class MockFilesytem(COS300Filesystem):
+
+    number_of_blocks = 200
+
+    def __init__(self):
+        pass
+
+
 def test_write_directory_entry():
     words = [0, 0]
-    segment = OS8Segment(None)
+    fs = MockFilesytem()
+    partition = OS8Partition(fs, 0)
+    segment = OS8Segment(partition)
     segment.extra_words = 1
 
     e = COS300DirectoryEntry.read(segment, words, 0, 0)

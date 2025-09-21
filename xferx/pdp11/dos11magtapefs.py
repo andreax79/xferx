@@ -233,13 +233,13 @@ class DOS11MagTapeDirectoryEntry(AbstractDirectoryEntry):
     def basename(self) -> str:
         return f"{self.filename}.{self.extension}"
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return int(math.ceil(self.size / BLOCK_SIZE))
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -267,7 +267,7 @@ class DOS11MagTapeDirectoryEntry(AbstractDirectoryEntry):
         self.write()
         return True
 
-    def open(self, file_mode: t.Optional[str] = None) -> DOS11MagTapeFile:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> DOS11MagTapeFile:
         """
         Open a file
         """
@@ -315,6 +315,11 @@ class DOS11MagTapeFilesystem(AbstractFilesystem):
     fs_name = "magtape"
     fs_description = "PDP-11 DOS/BATCH Magtape"
     fs_platforms = ["pdp11"]
+    fs_entry_metadata = [
+        "creation_date",
+        "protection_code",
+    ]
+
     dev: Tape
 
     uic: UIC = DEFAULT_UIC  # current User Identification Code
@@ -397,35 +402,28 @@ class DOS11MagTapeFilesystem(AbstractFilesystem):
         self,
         fullname: str,
         content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
+        fork: t.Optional[str] = None,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
         file_mode: t.Optional[str] = None,
-        protection_code: int = DEFAULT_PROTECTION_CODE,
     ) -> None:
         """
         Write content to a file
         """
-        number_of_blocks = int(math.ceil(len(content) * 1.0 / RECORD_SIZE))
-        self.create_file(
-            fullname=fullname,
-            number_of_blocks=number_of_blocks,
-            creation_date=creation_date,
-            content=content,
-            protection_code=protection_code,
-        )
+        self.create_file(fullname=fullname, size=len(content), metadata=metadata or {}, content=content)
 
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
-        content: t.Union[bytes, bytearray, None] = None,
-        protection_code: int = DEFAULT_PROTECTION_CODE,
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
+        content: t.Optional[t.Union[bytes, bytearray]] = None,
     ) -> DOS11MagTapeDirectoryEntry:
         """
         Create a new file with a given length in number of blocks
         """
+        metadata = metadata or {}
+        protection_code: int = metadata.get("protection_code", DEFAULT_PROTECTION_CODE)  # type: ignore
+        creation_date: t.Optional[date] = metadata.get("creation_date")  # type: ignore
         # Delete the existing file
         uic, basename = dos11_split_fullname(fullname=fullname, wildcard=False, uic=self.uic)
         try:
@@ -449,6 +447,7 @@ class DOS11MagTapeFilesystem(AbstractFilesystem):
         entry.write(skip_file=False)
         # Write the file
         empty_record = b"\0" * RECORD_SIZE
+        number_of_blocks = (size + RECORD_SIZE - 1) // RECORD_SIZE
         for i in range(0, number_of_blocks):
             if content is not None:
                 record = content[i * RECORD_SIZE : (i + 1) * RECORD_SIZE]
@@ -535,10 +534,32 @@ class DOS11MagTapeFilesystem(AbstractFilesystem):
         Change the current User Identification Code
         """
         try:
-            self.uic = UIC.from_str(fullname)
+            self.uic = UIC.from_str(fullname, strict=True)
             return True
         except Exception:
             return False
 
-    def get_pwd(self) -> str:
-        return str(self.uic)
+    def isdir(self, fullname: str) -> bool:
+        """
+        Check if the given path is an UIC
+        """
+        try:
+            UIC.from_str(fullname, strict=True)
+            return True
+        except Exception:
+            return False
+
+    def path_join(self, path: str, *paths: str) -> str:
+        """
+        Join UIC and filename
+        """
+        paths = [x for x in paths if x]  # type: ignore
+        if not paths:
+            return path
+        try:
+            uic = UIC.from_str(path)
+        except Exception:
+            raise NotADirectoryError(errno.ENOTDIR, os.strerror(errno.ENOTDIR), path)
+        if len(paths) > 1:
+            raise OSError(errno.EINVAL, "Can only join UIC and filename")
+        return f"{uic}{paths[0]}"

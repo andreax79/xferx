@@ -21,10 +21,12 @@
 __all__ = [
     "ASCII",
     "BLOCK_SIZE",
+    "DATA_FORK",
     "DECTAPE",
     "DECTAPE_EXT",
     "IMAGE",
     "READ_FILE_FULL",
+    "RESOURCE_FORK",
     "BlockDirection",
     "Direction",
     "TrackSector",
@@ -54,6 +56,9 @@ IMAGE = "IMAGE"  # Copy in image mode
 
 DECTAPE_EXT = ["tu56", "tap", "dta"]  # DECtape file extensions
 DECTAPE = "dectape"  # DECtape device type
+
+DATA_FORK = "DATA"
+RESOURCE_FORK = "RESOURCE"
 
 
 def bytes_to_word(val: bytes, position: int = 0) -> int:
@@ -106,15 +111,27 @@ def hex_dump(data: bytes, bytes_per_line: int = BYTES_PER_LINE) -> None:
         sys.stdout.write(f"{i:08x}   {hex_str.ljust(3 * bytes_per_line)}  {ascii_str}\n")
 
 
-def dump_struct(d: t.Dict[str, t.Any], exclude: t.List[str] = [], include: t.List[str] = []) -> str:
+def dump_struct(
+    d: t.Dict[str, t.Any],
+    exclude: t.List[str] = [],
+    include: t.List[str] = [],
+    width: int = 20,
+    newline: bool = False,
+    format_label: bool = True,
+) -> str:
     result: t.List[str] = []
     for k, v in d.items():
         if (type(v) in (int, str, bytes, list, bool) or k in include) and k not in exclude:
-            if len(k) < 6:
+            if not format_label:
+                label = k + ":"
+            elif len(k) < 6:
                 label = k.upper() + ":"
             else:
                 label = k.replace("_", " ").title() + ":"
-            result.append(f"{label:20s}{v}")
+            label = label.ljust(width)
+            result.append(f"{label}{v}")
+    if newline:
+        result.append("")
     return "\n".join(result)
 
 

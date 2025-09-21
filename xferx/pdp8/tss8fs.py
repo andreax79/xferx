@@ -19,7 +19,6 @@
 # THE SOFTWARE.
 
 import errno
-import math
 import os
 import re
 import sys
@@ -56,7 +55,7 @@ FIP_BLOCK = 1 * BLOCKS_PER_TRACK  # FIP File Phantom
 INIT_BLOCK = 2 * BLOCKS_PER_TRACK
 TSS8_BLOCK = 3 * BLOCKS_PER_TRACK  # TSS/8 resident monitor (2 traks)
 
-# MFD
+# Master File Directory (MFD)
 
 MFD_UID_POS = 0
 MFD_PASSWORD_POS = 1
@@ -68,7 +67,7 @@ MFD_CPU_TIME_POS = 6
 MFD_RETRIEVAL_POINTER_POS = 7
 MFD_SIZE = 8  # in words
 
-# UFD
+# User File Directory (UFD)
 
 UFD_FILENAME_SIZE = 3  # Filename size (in words)
 UFD_FILENAME_POS = 0
@@ -79,7 +78,7 @@ UFD_CREATION_DATE_POS = 6
 UFD_RETRIEVAL_POINTER_POS = 7
 UFD_SIZE = 8  # in words
 
-# SAT
+# Storage Allocation Table (SAT)
 
 SAT_SIZE = 0o530  # Size of the Storage Allocation Table (in words)
 SAT_END_POS = 0o7777  # Position of the end of the Storage Allocation Table in FIP
@@ -140,8 +139,10 @@ class PPN(UIC):
     """
 
     @classmethod
-    def from_str(cls, code_str: str) -> "PPN":
-        code_str = code_str.split("[")[1].split("]")[0]
+    def from_str(cls, code_str: str, strict: bool = False) -> "PPN":
+        code_str, tmp = code_str.split("[")[1].split("]", 1)
+        if strict and tmp:
+            raise ValueError("Invalid PPN")
         group_str, user_str = code_str.split(",")
         if group_str == "*":
             group = ANY_GROUP
@@ -416,16 +417,10 @@ class TSS8AbstractDirectoryEntry(AbstractDirectoryEntry):
     Master or User File Directory Entry
     """
 
+    fs: "TSS8Filesystem"
     position: int = 0  # Position (offset in MFD/UFD)
     next: int = 0  # Link to next entry
     retrieval_pointer: int = 0  # Retrieval pointer (offset in MFD/UFD)
-
-    @abstractmethod
-    def update_dir(self) -> None:
-        """
-        Write the entry in the Master/User File Directory
-        """
-        pass
 
     @abstractmethod
     def to_words(self) -> t.List[int]:
@@ -470,6 +465,7 @@ class MasterFileDirectoryEntry(TSS8AbstractDirectoryEntry):
     retrieval_pointer: int  # Retrieval pointer (offset in MFD)
 
     def __init__(self, mfd: "MasterFileDirectory"):
+        self.fs = mfd.fs
         self.mfd = mfd
 
     @classmethod
@@ -511,7 +507,6 @@ class MasterFileDirectoryEntry(TSS8AbstractDirectoryEntry):
         self.cpu_time = 0
         self.device_time = 0
         self.retrieval_pointer = retrieval_pointer
-        self.update_dir()  # Write the entry to the MFD
         return self
 
     def iterdir(
@@ -532,12 +527,6 @@ class MasterFileDirectoryEntry(TSS8AbstractDirectoryEntry):
         """
         return sum(entry.get_length() for entry in self.iterdir())
 
-    def update_dir(self) -> None:
-        """
-        Write the entry in the User File Directory
-        """
-        self.mfd.words[self.position : self.position + ENTRY_SIZE] = self.to_words()
-
     def to_words(self) -> t.List[int]:
         """
         Convert the entry to a list of 12-bit words
@@ -553,7 +542,7 @@ class MasterFileDirectoryEntry(TSS8AbstractDirectoryEntry):
         words.append(self.retrieval_pointer)  # Retrieval Pointer
         return words
 
-    def open(self, file_mode: t.Optional[str] = None) -> TSS8File:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> TSS8File:
         raise OSError(errno.EINVAL, "Invalid operation on directory")
 
     @property
@@ -571,17 +560,17 @@ class MasterFileDirectoryEntry(TSS8AbstractDirectoryEntry):
     def basename(self) -> str:
         return f"{self.ppn}"
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return len(list(self.mfd.retrieval_blocks(self.retrieval_pointer)))
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get entry size in bytes
         """
-        return self.get_length() * self.get_block_size()
+        return self.get_length(fork) * self.get_block_size()
 
     def get_block_size(self) -> int:
         """
@@ -602,13 +591,6 @@ class MasterFileDirectoryEntry(TSS8AbstractDirectoryEntry):
         Write the directory entry
         """
         raise OSError(errno.EINVAL, "Invalid operation on directory")
-
-    @property
-    def fs(self) -> "TSS8Filesystem":
-        """
-        Get the filesystem associated with this MFD entry
-        """
-        return self.mfd.fs
 
     def __str__(self) -> str:
         return (
@@ -643,13 +625,14 @@ class UserFileDirectoryEntry(TSS8AbstractDirectoryEntry):
     filename: str = ""
     extension: str = ""
     extension_idx: int = 0  # Extension index
-    protection: int = 0  # Protection bits
+    tss8_protection_code: int = 0  # Protection bits
     next: int = 0  # Link to next entry
     length: int = 0  # Length in blocks
     raw_creation_date: int = 0  # Creation date
     retrieval_pointer: int = 0  # Retrieval pointer (offset in MFD)
 
     def __init__(self, ufd: "UserFileDirectory"):
+        self.fs = ufd.fs
         self.ufd = ufd
 
     @classmethod
@@ -660,7 +643,7 @@ class UserFileDirectoryEntry(TSS8AbstractDirectoryEntry):
         self.filename = from_12bit_words_to_ascii(filename).strip()
         self.next = ufd.words[position + UFD_NEXT_POS]
         ext_protection = ufd.words[position + UFD_EXT_PROTECTION_POS]
-        self.protection = ext_protection & 0o77
+        self.tss8_protection_code = ext_protection & 0o77
         self.extension_idx = (ext_protection >> 7) & 0xF
         self.extension = EXTENSIONS[self.extension_idx]
         self.length = ufd.words[position + UFD_FILE_SIZE_POS]
@@ -684,20 +667,13 @@ class UserFileDirectoryEntry(TSS8AbstractDirectoryEntry):
         """
         self = cls(ufd)
         (self.filename, self.extension, self.extension_idx) = tss8_prepare_filename_extension(basename)
-        self.protection = protection_code
+        self.tss8_protection_code = protection_code
         self.position = position
         self.next = 0
         self.length = number_of_blocks
         self.raw_creation_date = date_to_tss8(creation_date or date.today())
         self.retrieval_pointer = retrieval_pointer
-        self.update_dir()  # Write the entry to the UFD
         return self
-
-    def update_dir(self) -> None:
-        """
-        Write the entry in the User File Directory
-        """
-        self.ufd.words[self.position : self.position + ENTRY_SIZE] = self.to_words()
 
     def to_words(self) -> t.List[int]:
         """
@@ -706,7 +682,7 @@ class UserFileDirectoryEntry(TSS8AbstractDirectoryEntry):
         words = from_ascii_to_12bit_words(self.filename)[:UFD_FILENAME_SIZE]
         words = words + [0] * (UFD_FILENAME_SIZE - len(words))  # Ensure 3 words for filename
         words.append(self.next)
-        words.append(self.protection + ((self.extension_idx & 0xF) << 7))
+        words.append(self.tss8_protection_code + ((self.extension_idx & 0xF) << 7))
         words.append(self.length)
         words.append(self.raw_creation_date)
         words.append(self.retrieval_pointer)
@@ -730,13 +706,13 @@ class UserFileDirectoryEntry(TSS8AbstractDirectoryEntry):
     def creation_date(self) -> t.Optional[date]:
         return tss8_to_date(self.raw_creation_date)
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return self.length
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -766,7 +742,7 @@ class UserFileDirectoryEntry(TSS8AbstractDirectoryEntry):
         """
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
-    def open(self, file_mode: t.Optional[str] = None) -> TSS8File:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> TSS8File:
         """
         Open a file
         """
@@ -781,7 +757,7 @@ class UserFileDirectoryEntry(TSS8AbstractDirectoryEntry):
 
     def __str__(self) -> str:
         return (
-            f"{str(self.ufd.ppn):<11} {self.basename:12}  {self.protection:02o}  {str(self.creation_date or ''):12}  "
+            f"{str(self.ufd.ppn):<11} {self.basename:12}  {self.tss8_protection_code:02o}  {str(self.creation_date or ''):12}  "
             f"{self.position:>5}  {self.next:>5}  {self.retrieval_pointer:>5}  {self.length:>5}"
         )
 
@@ -1006,7 +982,7 @@ class MasterFileDirectory(AbstractFileDirectory):
         self,
         ppn: PPN,
         password: str = "",
-    ) -> t.Optional["MasterFileDirectoryEntry"]:
+    ) -> MasterFileDirectoryEntry:
         """
         Create a User File Directory
         """
@@ -1021,11 +997,12 @@ class MasterFileDirectory(AbstractFileDirectory):
             retrieval_pointer=free_dir_blocks.pop(0),
             password=password,
         )
+        self.words[entry.position : entry.position + ENTRY_SIZE] = entry.to_words()
 
         # Update the previous entry
         prev_entry = self.entries[-1]
         prev_entry.next = entry.position
-        prev_entry.update_dir()  # Write the previous entry to the UFD
+        self.words[prev_entry.position : prev_entry.position + ENTRY_SIZE] = prev_entry.to_words()
 
         # Update the retrieval pointer
         block = bitmap.allocate_one()
@@ -1138,7 +1115,7 @@ class UserFileDirectory(AbstractFileDirectory):
             self.delete(entry)
             return
         entry.length = number_of_blocks
-        entry.update_dir()  # Write the entry to the UFD
+        self.words[entry.position : entry.position + ENTRY_SIZE] = entry.to_words()
         self.resize_retrieval_blocks(entry.retrieval_pointer, number_of_blocks)
 
     def create_file(
@@ -1164,11 +1141,12 @@ class UserFileDirectory(AbstractFileDirectory):
             protection_code=protection_code,
             creation_date=creation_date,
         )
+        self.words[entry.position : entry.position + ENTRY_SIZE] = entry.to_words()
 
         # Update the previous entry
         prev_entry = self.entries[-1]
         prev_entry.next = entry.position
-        prev_entry.update_dir()  # Write the previous entry to the UFD
+        self.words[prev_entry.position : prev_entry.position + ENTRY_SIZE] = prev_entry.to_words()
 
         # Update the retrieval pointer
         self.words[entry.retrieval_pointer : entry.retrieval_pointer + RETRIEVAL_SIZE] = [0] * RETRIEVAL_SIZE
@@ -1342,14 +1320,25 @@ class TSS8Filesystem(AbstractFilesystem):
     TSS/8 Filesystem
 
     Disk storage
-                               Words
-    +-----------------------+
-    | Monitor               |  20k
-    |                       |
-    +-----------------------+
-    | Swapping area         |  4k * users
-    |                       |
-    +-----------------------+
+                              Words
+    +-----------------------+       ---
+    | System Interpreter    |  4k    |
+    +-----------------------+        |
+    | FIP                   |  4k    | <-- contains the Storage Allocation Table (SAT)
+    +-----------------------+        |
+    | Init                  |  4k    |   Monitor
+    +-----------------------+        |     20k
+    | TSS8                  |  8k    |
+    |                       |        |
+    +-----------------------+       ---
+    | Job #1                |  4k    |
+    +-----------------------+        |
+    | Job #2                |  4k    |   Swapping
+    +-----------------------+        |     area
+    /                       /        |  4k * users
+    +-----------------------+        |
+    | Job #n                |  4k    |
+    +-----------------------+       ---
     | File area             |
     |                       |
     +-----------------------+
@@ -1364,8 +1353,9 @@ class TSS8Filesystem(AbstractFilesystem):
     fs_name = "tss8"
     fs_description = "PDP-8 TSS/8"
     fs_platforms = ["pdp-8"]
-    dev: BlockDevice12Bit
+    fs_entry_metadata = ["creation_date", "tss8_protection_code"]
 
+    dev: BlockDevice12Bit
     users: int  # Number of users
     mfd_block: int  # Block number of the Master File Directory
     ppn: PPN = DEFAULT_PPN
@@ -1508,27 +1498,21 @@ class TSS8Filesystem(AbstractFilesystem):
         """
         return StorageAllocationTable.read(self)
 
-    def write_bytes(
-        self,
-        fullname: str,
-        content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
-        file_mode: t.Optional[str] = None,
-    ) -> None:
-        number_of_blocks = int(math.ceil(len(content) / TSS8_BLOCK_SIZE_BYTES))
-        entry = self.create_file(fullname, number_of_blocks, creation_date, file_type)
-        content = content + (b"\0" * TSS8_BLOCK_SIZE_BYTES)
-        with entry.open(file_mode) as f:
-            f.write_block(content, block_number=0, number_of_blocks=entry.length)
-
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
     ) -> UserFileDirectoryEntry:
+        """
+        Create a new file
+        """
+        metadata = metadata or {}
+        creation_date: t.Optional[date] = metadata.get("creation_date")  # type: ignore
+        number_of_blocks: t.Optional[int] = metadata.get("number_of_blocks", None)  # type: ignore
+        if number_of_blocks is None:
+            number_of_blocks = (size + TSS8_BLOCK_SIZE_BYTES - 1) // TSS8_BLOCK_SIZE_BYTES
+        # If the file already exists, resize it
         try:
             entry = self.get_file_entry(fullname)
             entry.resize(number_of_blocks)
@@ -1553,7 +1537,7 @@ class TSS8Filesystem(AbstractFilesystem):
         self,
         fullname: str,
         options: t.Dict[str, t.Union[bool, str]],
-    ) -> t.Optional["MasterFileDirectoryEntry"]:
+    ) -> MasterFileDirectoryEntry:
         """
         Create a User File Directory
         """
@@ -1588,7 +1572,29 @@ class TSS8Filesystem(AbstractFilesystem):
         return str(self.ppn)
 
     def isdir(self, fullname: str) -> bool:
-        return False
+        """
+        Check if the given path is a Project-Programmer Number (PPN)
+        """
+        try:
+            PPN.from_str(fullname, strict=True)
+            return True
+        except Exception:
+            return False
+
+    def path_join(self, path: str, *paths: str) -> str:
+        """
+        Join PPN and filename
+        """
+        paths = [x for x in paths if x]  # type: ignore
+        if not paths:
+            return path
+        try:
+            ppn = PPN.from_str(path)
+        except Exception:
+            raise NotADirectoryError(errno.ENOTDIR, os.strerror(errno.ENOTDIR), path)
+        if len(paths) > 1:
+            raise OSError(errno.EINVAL, "Can only join PPN and filename")
+        return f"{ppn}{paths[0]}"
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         ppn, _ = tss8_split_fullname(fullname=pattern, wildcard=True, ppn=self.ppn)
@@ -1624,7 +1630,7 @@ class TSS8Filesystem(AbstractFilesystem):
                         dt = ""
                     blocks += entry.length
                     sys.stdout.write(
-                        f"{entry.filename:<6}.{entry.extension:<3} {entry.length:>3}   {entry.protection:2o}  {dt:>9}\n"
+                        f"{entry.filename:<6}.{entry.extension:<3} {entry.length:>3}   {entry.tss8_protection_code:2o}  {dt:>9}\n"
                     )
             if not options.get("brief"):
                 sys.stdout.write(f"\nTOTAL DISK SEGMENTS:  {blocks:<6}\n")
@@ -1658,7 +1664,13 @@ class TSS8Filesystem(AbstractFilesystem):
             for mfd in self.read_mfd_entries():
                 sys.stdout.write(f"{mfd}\n")
 
-    def dump(self, fullname: t.Optional[str], start: t.Optional[int] = None, end: t.Optional[int] = None) -> None:
+    def dump(
+        self,
+        fullname: t.Optional[str],
+        start: t.Optional[int] = None,
+        end: t.Optional[int] = None,
+        fork: t.Optional[str] = None,
+    ) -> None:
         """Dump the content of a file or a range of blocks"""
         if fullname:
             entry = self.get_file_entry(fullname)
@@ -1717,6 +1729,3 @@ class TSS8Filesystem(AbstractFilesystem):
         Get filesystem size in bytes
         """
         return self.dev.get_size()
-
-    def close(self) -> None:
-        self.dev.close()

@@ -15,6 +15,7 @@ from xferx.pdp8.os8fs import (
     OS8_BLOCK_SIZE_BYTES,
     OS8DirectoryEntry,
     OS8Filesystem,
+    OS8Partition,
     OS8Segment,
     asc_to_rad50_word12,
     date_to_os8,
@@ -33,9 +34,19 @@ def test_rad50_word12():
         assert rad50_word12_to_asc(asc_to_rad50_word12(t)) == t
 
 
+class MockFilesytem(OS8Filesystem):
+
+    number_of_blocks = 200
+
+    def __init__(self):
+        pass
+
+
 def test_write_directory_entry():
     words = [0, 0]
-    segment = OS8Segment(None)
+    fs = MockFilesytem()
+    partition = OS8Partition(fs, 0)
+    segment = OS8Segment(partition)
     segment.extra_words = 1
 
     e = OS8DirectoryEntry.read(segment, words, 0, 0)
@@ -132,8 +143,7 @@ def test_rx_pack_invalid_word_count():
 def test_os8_write_rx01():
     shell = Shell(verbose=True)
     diskname = "tests/dsk/os8.rx01.mo"
-    with open(diskname, "wb") as f:
-        f.truncate(RX01_SIZE)
+    shell.onecmd(f"create /allocate:{RX01_SIZE}B {diskname}", batch=True)
     shell.onecmd(f"init /os8 {diskname}", batch=True)
     shell.onecmd(f"mount ou: /os8 {diskname}", batch=True)
     shell.onecmd("dir ou:", batch=True)
@@ -142,7 +152,7 @@ def test_os8_write_rx01():
     assert fs.num_of_partitions == 1
     vol0 = fs.get_partition(0)
     assert vol0.free() == 487
-    fs.create_file(fullname="TEST.TX", length=100, file_type="ascii")
+    fs.create_file(fullname="TEST.TX", size=100 * OS8_BLOCK_SIZE_BYTES)
     assert vol0.free() == 387
     for l in [100, 378, 512, 888]:
         t = "x" * l

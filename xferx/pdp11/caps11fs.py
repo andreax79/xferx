@@ -299,13 +299,13 @@ class CAPS11DirectoryEntry(AbstractDirectoryEntry):
             self.fs.dev.tape_skip_file()
         return True
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return int(math.ceil(self.size / BLOCK_SIZE))
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -355,7 +355,7 @@ class CAPS11DirectoryEntry(AbstractDirectoryEntry):
         self.write()
         return True
 
-    def open(self, file_mode: t.Optional[str] = None) -> CAPS11File:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> CAPS11File:
         """
         Open a file
         """
@@ -403,6 +403,11 @@ class CAPS11Filesystem(AbstractFilesystem):
     fs_name = "caps11"
     fs_description = "PDP-11 CAPS-11 / PDP-8 CAPS-8"
     fs_platforms = ["pdp11", "pdp8"]
+    fs_entry_metadata = [
+        "creation_date",
+        "version",
+    ]
+
     caps8 = False  # Is CAPS-8 ?
     dev: Tape
 
@@ -478,27 +483,26 @@ class CAPS11Filesystem(AbstractFilesystem):
         self,
         fullname: str,
         content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
+        fork: t.Optional[str] = None,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
         file_mode: t.Optional[str] = None,
     ) -> None:
         """
         Write content to a file
         """
-        number_of_blocks = int(math.ceil(len(content) * 1.0 / RECORD_SIZE))
-        self.create_file(fullname, number_of_blocks, creation_date, content=content)
+        self.create_file(fullname, len(content), metadata or {}, content=content)
 
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
         content: t.Union[bytes, bytearray, None] = None,
     ) -> CAPS11DirectoryEntry:
         """
         Create a new file with a given length in number of blocks
         """
+        metadata = metadata or {}
         # Delete the existing file
         fullname = rt11_canonical_filename(fullname, wildcard=False)
         try:
@@ -515,10 +519,12 @@ class CAPS11Filesystem(AbstractFilesystem):
         self.dev.tape_truncate(tape_pos)
         # Create the new directory entry
         filename, extension = fullname.split(".", 1)
+        creation_date = metadata.get("creation_date", date.today())
         entry = CAPS11DirectoryEntry.new(self, 0, tape_pos, filename, extension, creation_date)
         entry.write(skip_file=False)
         # Write the file
         empty_record = b"\0" * RECORD_SIZE
+        number_of_blocks = (size + RECORD_SIZE - 1) // RECORD_SIZE
         for i in range(0, number_of_blocks):
             if content is not None:
                 record = content[i * RECORD_SIZE : (i + 1) * RECORD_SIZE]

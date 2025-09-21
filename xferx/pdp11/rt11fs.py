@@ -20,7 +20,6 @@
 
 import errno
 import io
-import math
 import os
 import re
 import sys
@@ -218,18 +217,20 @@ class RT11File(AbstractFile):
 
 class RT11DirectoryEntry(AbstractDirectoryEntry):
 
+    fs: "RT11Filesystem"
     partition: "RT11Partition"
     status: int = 0
     filename: str = ""
     extension: str = ""
     length: int = 0
-    job: int = 0
-    channel: int = 0
+    rt11_job: int = 0
+    rt11_channel: int = 0
     raw_creation_date: int = 0
-    extra_bytes: bytes = b''
+    rt11_extra_bytes: bytes = b''
     file_position: int = 0  # block number
 
     def __init__(self, partition: "RT11Partition"):
+        self.fs = partition.fs
         self.partition = partition
 
     @classmethod
@@ -246,10 +247,10 @@ class RT11DirectoryEntry(AbstractDirectoryEntry):
         self.filename = rad2asc(buffer, position + 2) + rad2asc(buffer, position + 4)  # 6 RAD50 chars
         self.extension = rad2asc(buffer, position + 6)  # 3 RAD50 chars
         self.length = bytes_to_word(buffer, position + 8)  # length in blocks
-        self.job = buffer[position + 10]
-        self.channel = buffer[position + 11]
+        self.rt11_job = buffer[position + 10]
+        self.rt11_channel = buffer[position + 11]
         self.raw_creation_date = bytes_to_word(buffer, position + 12)
-        self.extra_bytes = buffer[position + 14 : position + 14 + extra_bytes]
+        self.rt11_extra_bytes = buffer[position + 14 : position + 14 + extra_bytes]
         self.file_position = file_position
         return self
 
@@ -260,10 +261,10 @@ class RT11DirectoryEntry(AbstractDirectoryEntry):
         self.filename = entry.filename
         self.extension = entry.extension
         self.length = entry.length
-        self.job = entry.job
-        self.channel = entry.channel
+        self.rt11_job = entry.rt11_job
+        self.rt11_channel = entry.rt11_channel
         self.raw_creation_date = entry.raw_creation_date
-        self.extra_bytes = entry.extra_bytes
+        self.rt11_extra_bytes = entry.rt11_extra_bytes
         self.file_position = entry.file_position
         return self
 
@@ -275,10 +276,10 @@ class RT11DirectoryEntry(AbstractDirectoryEntry):
         out.extend(asc2rad(self.filename[3:6]))
         out.extend(asc2rad(self.extension))
         out.extend(word_to_bytes(self.length))
-        out.append(self.job)
-        out.append(self.channel)
+        out.append(self.rt11_job)
+        out.append(self.rt11_channel)
         out.extend(word_to_bytes(self.raw_creation_date))
-        out.extend(self.extra_bytes)
+        out.extend(self.rt11_extra_bytes)
         return bytes(out)
 
     @property
@@ -338,13 +339,13 @@ class RT11DirectoryEntry(AbstractDirectoryEntry):
     def basename(self) -> str:
         return self.fullname
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return self.length
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -416,24 +417,24 @@ class RT11DirectoryEntry(AbstractDirectoryEntry):
         entry.filename = self.filename
         entry.extension = self.extension
         entry.length = self.length
-        entry.job = self.job
-        entry.channel = self.channel
+        entry.rt11_job = self.rt11_job
+        entry.rt11_channel = self.rt11_channel
         entry.raw_creation_date = self.raw_creation_date
-        entry.extra_bytes = self.extra_bytes
+        entry.rt11_extra_bytes = self.rt11_extra_bytes
         segment.write()
         return True
 
-    def open(self, file_mode: t.Optional[str] = None) -> RT11File:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> RT11File:
         """
         Open a file
         """
         return RT11File(self)
 
-    def read_bytes(self, file_mode: t.Optional[str] = None) -> bytes:
+    def read_bytes(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> bytes:
         """
         Get the content of the file
         """
-        data = super().read_bytes()
+        data = super().read_bytes(file_mode, fork)
         if file_mode == ASCII:
             data = data.rstrip(b"\0")
         return data
@@ -444,7 +445,7 @@ class RT11DirectoryEntry(AbstractDirectoryEntry):
             f"{self.fullname:<11} "
             f"{self.creation_date or '          '} "
             f"{length:>6}  {self.status:6o}  "
-            f"{self.job:3d} {self.channel:3d} {self.file_position:6d}  {self.description}"
+            f"{self.rt11_job:3d} {self.rt11_channel:3d} {self.file_position:6d}  {self.description}"
         )
 
     def __repr__(self) -> str:
@@ -791,8 +792,8 @@ class RT11Partition:
         entry.filename = tmp[0]
         entry.extension = tmp[1] and tmp[1][1:] or ""
         entry.raw_creation_date = date_to_rt11(creation_date)
-        entry.job = 0
-        entry.channel = 0
+        entry.rt11_job = 0
+        entry.rt11_channel = 0
         entry.status = E_PERM
         entry.length = length
         # Write the segment
@@ -892,6 +893,15 @@ class RT11Filesystem(AbstractRXBlockFilesystem):
     fs_name = "rt11"
     fs_description = "PDP-11 RT-11"
     fs_platforms = ["pdp11"]
+    fs_entry_metadata = [
+        "creation_date",
+        "has_prefix_block",
+        "is_delete_protected",
+        "is_read_only",
+        "rt11_extra_bytes",
+        "rt11_channel",
+        "rt11_job",
+    ]
 
     partitions: t.List[RT11Partition]  # Disk partitions
     current_partition: int  # Current partition
@@ -982,35 +992,21 @@ class RT11Filesystem(AbstractRXBlockFilesystem):
                     return entry
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), fullname)
 
-    def write_bytes(
-        self,
-        fullname: str,
-        content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
-        file_mode: t.Optional[str] = None,
-    ) -> None:
-        number_of_blocks = int(math.ceil(len(content) * 1.0 / BLOCK_SIZE))
-        entry = self.create_file(fullname, number_of_blocks, creation_date, file_type)
-        # TODO open file
-        if not entry:
-            return
-        content = content + (b"\0" * BLOCK_SIZE)
-        self.write_block(content, entry.file_position, entry.length)
-
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
     ) -> RT11DirectoryEntry:
+        metadata = metadata or {}
         partition, fullname = rt11_split_fullname(self.current_partition, fullname, wildcard=False)  # type: ignore
         part = self.get_partition(partition)
         try:
             part.get_file_entry(fullname).delete()
         except FileNotFoundError:
             pass
+        number_of_blocks = (size + BLOCK_SIZE - 1) // BLOCK_SIZE
+        creation_date: t.Optional[date] = metadata.get("creation_date")
         return part.allocate_space(fullname, number_of_blocks, creation_date)
 
     def chdir(self, fullname: str) -> bool:

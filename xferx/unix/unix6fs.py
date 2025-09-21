@@ -91,5 +91,14 @@ class UNIX6Filesystem(UNIX4Filesystem):
     fs_name = "unix6"
     fs_description = "UNIX version 6"
     fs_platforms = ["pdp-11", "interdata7"]
+    fs_entry_metadata = [
+        "creation_date",
+        "last_access",
+        "last_mod_date",
+        "unix_flags",
+        "unix_uid",
+        "unix_gid",
+    ]
+
     version: int = 6  # UNIX version
     unix_inode_class = UNIXInode6

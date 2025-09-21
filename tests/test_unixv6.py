@@ -42,3 +42,10 @@ def test_unix6_read():
     assert not entry.inode.is_large
     assert not entry.inode.is_huge
     assert entry.inode.addr[-1] == 0
+
+    metadata = entry.metadata
+    print(metadata)
+    # assert metadata['prodos_storage_type'] == 0x5
+    # assert metadata['prodos_file_type'] == 0x34
+    # assert metadata['aux_type'] == 0x5678
+    # assert isinstance(metadata['creation_date'], datetime)

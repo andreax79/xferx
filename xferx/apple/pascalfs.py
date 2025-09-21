@@ -19,7 +19,6 @@
 # THE SOFTWARE.
 
 import errno
-import math
 import os
 import struct
 import sys
@@ -465,13 +464,13 @@ class PascalDirectoryEntry(AbstractDirectoryEntry):
     def basename(self) -> str:
         return self.filename
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return self.length
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -515,7 +514,7 @@ class PascalDirectoryEntry(AbstractDirectoryEntry):
                 return True
         return False
 
-    def open(self, file_mode: t.Optional[str] = None) -> PascalFile:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> PascalFile:
         """
         Open a file
         """
@@ -548,6 +547,10 @@ class PascalFilesystem(AbstractAppleDiskFilesystem):
     fs_name = "pascal"
     fs_description = "Apple II Pascal"
     fs_platforms = ["apple2"]
+    fs_entry_metadata = [
+        "creation_date",
+        "file_type",
+    ]
 
     volume_name: str = ""  # Volume name
 
@@ -595,7 +598,7 @@ class PascalFilesystem(AbstractAppleDiskFilesystem):
                 return entry
         raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), fullname)
 
-    def read_bytes(self, fullname: str, file_type: t.Optional[str] = None) -> bytes:  # fullname=filename+ext
+    def read_bytes(self, fullname: str, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> bytes:
         entry = self.get_file_entry(fullname)
         return self.read_block(entry.start_block, entry.length)
 
@@ -603,41 +606,37 @@ class PascalFilesystem(AbstractAppleDiskFilesystem):
         self,
         fullname: str,
         content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
+        fork: t.Optional[str] = None,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
         file_mode: t.Optional[str] = None,
     ) -> None:
         """
         Write content to a file
         """
-        number_of_blocks = int(math.ceil(len(content) / BLOCK_SIZE))
-        last_block_bytes = len(content) % BLOCK_SIZE
-        entry = self.create_file(
-            fullname=fullname,
-            number_of_blocks=number_of_blocks,
-            creation_date=creation_date,
-            file_type=file_type,
-            last_block_bytes=last_block_bytes,
-        )
-        if entry is not None:
-            content = content + (b"\0" * BLOCK_SIZE)  # pad with zeros
-            with entry.open(file_mode) as f:
-                f.write_block(content, block_number=0, number_of_blocks=number_of_blocks)
+        metadata = metadata or {}
+        entry = self.create_file(fullname=fullname, size=len(content), metadata=metadata)
+        number_of_blocks = (len(content) + BLOCK_SIZE - 1) // BLOCK_SIZE
+        content = content + (b"\0" * BLOCK_SIZE)  # pad with zeros
+        with entry.open(file_mode) as f:
+            f.write_block(content, block_number=0, number_of_blocks=number_of_blocks)
 
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,  # optional file type
-        last_block_bytes: int = 0,  # number of bytes in last block
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
     ) -> PascalDirectoryEntry:
+        metadata = metadata or {}
+        file_type: t.Optional[str] = metadata.get("file_type")  # type: ignore
+        creation_date: t.Optional[date] = metadata.get("creation_date")  # type: ignore
         fullname = pascal_canonical_filename(fullname)  # type: ignore
         try:
             self.get_file_entry(fullname).delete()
         except FileNotFoundError:
             pass
         volume_dir = VolumeDirectory.read(self)
+        number_of_blocks = (size + BLOCK_SIZE - 1) // BLOCK_SIZE
+        last_block_bytes = size % BLOCK_SIZE
         entry = volume_dir.allocate_space(
             fullname=fullname,
             number_of_blocks=number_of_blocks,
@@ -647,12 +646,6 @@ class PascalFilesystem(AbstractAppleDiskFilesystem):
         )
         volume_dir.write()
         return entry
-
-    def chdir(self, fullname: str) -> bool:
-        return False
-
-    def isdir(self, fullname: str) -> bool:
-        return False
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         volume_dir = VolumeDirectory.read(self)
@@ -698,15 +691,15 @@ class PascalFilesystem(AbstractAppleDiskFilesystem):
             entry = self.get_file_entry(arg)
             entry_dict = dict(entry.__dict__)
             del entry_dict["fs"]
-            sys.stdout.write(dump_struct(entry_dict) + "\n")
+            sys.stdout.write(dump_struct(entry_dict, newline=True))
         else:
             # Dump the entire filesystem
             volume_dir = VolumeDirectory.read(self)
             volume_dir_dict = dict(volume_dir.__dict__)
             del volume_dir_dict["fs"]
             del volume_dir_dict["directory_entries"]
-            sys.stdout.write(dump_struct(volume_dir_dict))
-            sys.stdout.write("\n\n")
+            sys.stdout.write(dump_struct(volume_dir_dict, newline=True))
+            sys.stdout.write("\n")
             sys.stdout.write("Nr  Filename        Blocks  Date     Start     End Size  File type\n")
             sys.stdout.write("--  --------        ------  ----     -----     --- ----  ---------\n")
             for i, entry in enumerate(volume_dir.directory_entries, start=1):

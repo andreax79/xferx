@@ -157,6 +157,14 @@ class UNIX4Filesystem(UNIXFilesystem):
     root_inode = V4_ROOT_INODE
     perms = V4_PERMS
     unix_inode_class = UNIXInode4
+    fs_entry_metadata = [
+        "creation_date",
+        "last_access",
+        "last_mod_date",
+        "unix_flags",
+        "unix_uid",
+        "unix_gid",
+    ]
 
     @classmethod
     def mount(

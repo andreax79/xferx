@@ -487,6 +487,7 @@ class DOS11DirectoryEntry(AbstractDirectoryEntry):
     http://www.bitsavers.org/pdf/dec/pdp11/dos-batch/DEC-11-OSPMA-A-D_PDP-11_DOS_Monitor_V004A_System_Programmers_Manual_May72.pdf
     """
 
+    fs: "DOS11Filesystem"
     ufd_block: "UserFileDirectoryBlock"
     uic: UIC = DEFAULT_UIC
     filename: str = ""
@@ -502,6 +503,7 @@ class DOS11DirectoryEntry(AbstractDirectoryEntry):
     spare2: int = 0
 
     def __init__(self, ufd_block: "UserFileDirectoryBlock"):
+        self.fs = ufd_block.fs
         self.ufd_block = ufd_block
         self.uic = ufd_block.uic
 
@@ -561,13 +563,13 @@ class DOS11DirectoryEntry(AbstractDirectoryEntry):
     def basename(self) -> str:
         return f"{self.filename}.{self.extension}"
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return self.length
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -623,7 +625,7 @@ class DOS11DirectoryEntry(AbstractDirectoryEntry):
         self.ufd_block.write()
         return True
 
-    def open(self, file_mode: t.Optional[str] = None) -> DOS11File:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> DOS11File:
         """
         Open a file
         """
@@ -772,6 +774,7 @@ class MasterFileDirectoryEntry(AbstractDirectoryEntry):
     https://bitsavers.org/pdf/dec/pdp11/dos-batch/DEC-11-OSPMA-A-D_PDP-11_DOS_Monitor_V004A_System_Programmers_Manual_May72.pdf
     """
 
+    fs: "DOS11Filesystem"
     mfd_block: "AbstractMasterFileDirectoryBlock"
     uic: UIC = DEFAULT_UIC  # User Identification Code
     ufd_block: int = 0  # UFD start block
@@ -779,6 +782,7 @@ class MasterFileDirectoryEntry(AbstractDirectoryEntry):
     zero: int = 0  # always 0
 
     def __init__(self, mfd_block: "AbstractMasterFileDirectoryBlock"):
+        self.fs = mfd_block.fs
         self.mfd_block = mfd_block
 
     @classmethod
@@ -835,17 +839,17 @@ class MasterFileDirectoryEntry(AbstractDirectoryEntry):
     def basename(self) -> str:
         return f"{self.uic}"
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return len(list(self.read_ufd_blocks()))
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get entry size in bytes
         """
-        return self.get_length() * self.get_block_size()
+        return self.get_length(fork) * self.get_block_size()
 
     def get_block_size(self) -> int:
         """
@@ -853,7 +857,7 @@ class MasterFileDirectoryEntry(AbstractDirectoryEntry):
         """
         return BLOCK_SIZE
 
-    def open(self, file_mode: t.Optional[str] = None) -> DOS11File:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> DOS11File:
         raise OSError(errno.EINVAL, "Invalid operation on directory")
 
     def delete(self) -> bool:
@@ -879,10 +883,6 @@ class MasterFileDirectoryEntry(AbstractDirectoryEntry):
         Write the directory entry
         """
         raise OSError(errno.EINVAL, "Invalid operation on directory")
-
-    @property
-    def fs(self) -> "DOS11Filesystem":
-        return self.mfd_block.fs
 
     def __str__(self) -> str:
         return f"{self.uic} ufd_block={self.ufd_block} num_words={self.num_words} zero={self.zero}"
@@ -1029,6 +1029,11 @@ class DOS11Filesystem(AbstractRXBlockFilesystem):
     fs_name = "dos11"
     fs_description = "PDP-11 DOS-11/XXDP+"
     fs_platforms = ["pdp11"]
+    fs_entry_metadata = [
+        "creation_date",
+        "contiguous",
+        "protection_code",
+    ]
 
     uic: UIC  # current User Identification Code
     xxdp: bool = False  # MFD Variety #2 (XXDP+)
@@ -1252,41 +1257,21 @@ class DOS11Filesystem(AbstractRXBlockFilesystem):
         except StopIteration:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), fullname)
 
-    def write_bytes(
-        self,
-        fullname: str,
-        content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
-        file_mode: t.Optional[str] = None,
-        protection_code: int = DEFAULT_PROTECTION_CODE,
-    ) -> None:
-        """
-        Write content to a file
-        """
-        block_size = BLOCK_SIZE if dos11_get_file_type_id(file_type) == CONTIGUOUS_FILE_TYPE else LINKED_FILE_BLOCK_SIZE
-        number_of_blocks = int(math.ceil(len(content) * 1.0 / block_size))
-        entry = self.create_file(
-            fullname=fullname,
-            number_of_blocks=number_of_blocks,
-            creation_date=creation_date,
-            file_type=file_type,
-            protection_code=protection_code,
-        )
-        with entry.open(file_mode) as f:
-            f.write_block(content, 0, entry.length)
-
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
-        protection_code: int = DEFAULT_PROTECTION_CODE,
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
     ) -> DOS11DirectoryEntry:
         """
         Create a new file with a given length in number of blocks
         """
+        metadata = metadata or {}
+        file_type: t.Optional[str] = metadata.get("file_type")  # type: ignore
+        protection_code: int = metadata.get("protection_code", DEFAULT_PROTECTION_CODE)  # type: ignore
+        creation_date: t.Optional[date] = metadata.get("creation_date")  # type: ignore
+        block_size = BLOCK_SIZE if dos11_get_file_type_id(file_type) == CONTIGUOUS_FILE_TYPE else LINKED_FILE_BLOCK_SIZE
+        number_of_blocks = (size + block_size - 1) // block_size
         contiguous = dos11_get_file_type_id(file_type) == CONTIGUOUS_FILE_TYPE
         # Delete the existing file
         try:
@@ -1348,7 +1333,7 @@ class DOS11Filesystem(AbstractRXBlockFilesystem):
         self,
         fullname: str,
         options: t.Dict[str, t.Union[bool, str]],
-    ) -> t.Optional["MasterFileDirectoryEntry"]:
+    ) -> "MasterFileDirectoryEntry":
         """
         Create a User File Directory
         """
@@ -1391,9 +1376,6 @@ class DOS11Filesystem(AbstractRXBlockFilesystem):
         entry.num_words = UFD_ENTRY_SIZE
         mfd.write()
         return entry
-
-    def isdir(self, fullname: str) -> bool:
-        return False
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         if options.get("uic"):
@@ -1491,7 +1473,7 @@ class DOS11Filesystem(AbstractRXBlockFilesystem):
         Change the current User Identification Code
         """
         try:
-            self.uic = UIC.from_str(fullname)
+            self.uic = UIC.from_str(fullname, strict=True)
             return True
         except Exception:
             return False
@@ -1501,6 +1483,31 @@ class DOS11Filesystem(AbstractRXBlockFilesystem):
         Get the current User Identification Code
         """
         return str(self.uic)
+
+    def isdir(self, fullname: str) -> bool:
+        """
+        Check if the given path is an UIC
+        """
+        try:
+            UIC.from_str(fullname, strict=True)
+            return True
+        except Exception:
+            return False
+
+    def path_join(self, path: str, *paths: str) -> str:
+        """
+        Join UIC and filename
+        """
+        paths = [x for x in paths if x]  # type: ignore
+        if not paths:
+            return path
+        try:
+            uic = UIC.from_str(path)
+        except Exception:
+            raise NotADirectoryError(errno.ENOTDIR, os.strerror(errno.ENOTDIR), path)
+        if len(paths) > 1:
+            raise OSError(errno.EINVAL, "Can only join UIC and filename")
+        return f"{uic}{paths[0]}"
 
     def get_types(self) -> t.List[str]:
         """

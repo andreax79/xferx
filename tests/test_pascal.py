@@ -3,7 +3,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from xferx.apple2.pascalfs import PascalFilesystem, date_to_pascal, pascal_to_date
+from xferx.apple.pascalfs import PascalFilesystem, date_to_pascal, pascal_to_date
 from xferx.shell import Shell
 
 DSK = "tests/dsk/pascal.dsk"

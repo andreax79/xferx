@@ -28,10 +28,19 @@ from abc import abstractmethod
 from datetime import date, datetime
 
 from ..abstract import AbstractDirectoryEntry, AbstractFile
-from ..commons import BLOCK_SIZE, IMAGE, READ_FILE_FULL, dump_struct, filename_match
+from ..commons import (
+    ASCII,
+    BLOCK_SIZE,
+    DATA_FORK,
+    IMAGE,
+    READ_FILE_FULL,
+    RESOURCE_FORK,
+    dump_struct,
+    filename_match,
+)
 from ..device.abstract import AbstractDevice
 from .abstract import AbstractAppleDiskFilesystem
-from .commons import ProDOSFileInfo, decode_apple_single, encode_apple_single
+from .commons import AppleSingle, ProDOSFileInfo
 
 __all__ = [
     "ProDOSFile",
@@ -135,6 +144,8 @@ TXT_FILE_TYPE = 0x04  # Text file type
 BIN_FILE_TYPE = 0x06  # Binary file type
 DIR_FILE_TYPE = 0x0F  # Directory file type
 PAS_FILE_TYPE = 0xEF  # Pascal file type
+
+FORKS = [DATA_FORK, RESOURCE_FORK]
 
 
 def prodos_to_date(val: int) -> t.Optional[datetime]:
@@ -304,12 +315,28 @@ def format_access(access: int) -> str:
     )
 
 
+def check_fork(fork: t.Optional[str], default: str = "") -> str:
+    """
+    Check if the fork is valid
+    """
+    if not fork:
+        return default
+    fork = fork.upper()
+    if fork.endswith(".FORK"):
+        fork = fork[:-5]
+    if fork not in FORKS:
+        raise OSError(errno.EINVAL, f"Invalid fork {fork}, must be one of {','.join(FORKS)}")
+    return fork
+
+
 class ProDOSFile(AbstractFile):
     entry: "FileEntry"
     closed: bool
+    fork: t.Optional[str]
 
-    def __init__(self, entry: "FileEntry"):
+    def __init__(self, entry: "FileEntry", fork: t.Optional[str] = None):
         self.entry = entry
+        self.fork = fork
         self.closed = False
 
     def read_block(
@@ -371,7 +398,7 @@ class ProDOSFile(AbstractFile):
         """
         Get file size in bytes
         """
-        return self.entry.get_size()
+        return self.entry.get_size(self.fork)
 
     def get_block_size(self) -> int:
         """
@@ -454,8 +481,9 @@ class ProDOSAbstractDirEntry(AbstractDirectoryEntry):
                     +-- PPMDirectoryEntry - Pascal Area (PPM Partition)
     """
 
+    fs: "ProDOSFilesystem"  # Filesystem
     parent: t.Optional["FileEntry"]  # Parent directory
-    storage_type: int = 0  # Storage type
+    prodos_storage_type: int = 0  # Storage type
     filename: str = ""  # Volume/subdirectory/file name
     version: int = 0  #  0 in ProDOS 1.0
     min_version: int = 0  #  0 in ProDOS 1.0
@@ -475,27 +503,27 @@ class ProDOSAbstractDirEntry(AbstractDirectoryEntry):
     ) -> t.Optional["ProDOSAbstractDirEntry"]:
         from .ppm import PPMDirectoryEntry
 
-        storage_type = buffer[position] >> 4
-        if storage_type == 0:
+        prodos_storage_type = buffer[position] >> 4
+        if prodos_storage_type == 0:
             return None
-        elif storage_type == VOLUME_DIRECTORY_HEADER_STORAGE_TYPE:
+        elif prodos_storage_type == VOLUME_DIRECTORY_HEADER_STORAGE_TYPE:
             return VolumeDirectoryHeader.read(fs, parent, buffer, position)
-        elif storage_type == SUBDIRECTORY_HEADER_STORAGE_TYPE:
+        elif prodos_storage_type == SUBDIRECTORY_HEADER_STORAGE_TYPE:
             return SubdirectoryHeader.read(fs, parent, buffer, position)
-        elif storage_type in (
+        elif prodos_storage_type in (
             SEEDLING_FILE_STORAGE_TYPE,
             SAPLING_FILE_STORAGE_TYPE,
             TREE_FILE_STORAGE_TYPE,
         ):
             return RegularFileEntry.read(fs, parent, buffer, position)
-        elif storage_type == DIRECTORY_FILE_SOURCE_TYPE:
+        elif prodos_storage_type == DIRECTORY_FILE_SOURCE_TYPE:
             return DirectoryFileEntry.read(fs, parent, buffer, position)
-        elif storage_type == PASCAL_AREA_STORAGE_TYPE:
+        elif prodos_storage_type == PASCAL_AREA_STORAGE_TYPE:
             return PPMDirectoryEntry.read(fs, parent, buffer, position)
-        elif storage_type == EXTENDED_FILE_STORAGE_TYPE:
+        elif prodos_storage_type == EXTENDED_FILE_STORAGE_TYPE:
             return ExtendedFileEntry.read(fs, parent, buffer, position)
         else:
-            print(f"Unknown storage type {storage_type}")
+            print(f"Unknown storage type {prodos_storage_type}")
             return None
 
     @property
@@ -511,7 +539,7 @@ class ProDOSAbstractDirEntry(AbstractDirectoryEntry):
 
     @property
     def storage_type_name(self) -> str:
-        return STORAGE_TYPES.get(self.storage_type, f"{self.storage_type:02X}")
+        return STORAGE_TYPES.get(self.prodos_storage_type, f"{self.prodos_storage_type:02X}")
 
     @property
     def creation_date(self) -> t.Optional[datetime]:
@@ -535,19 +563,19 @@ class ProDOSAbstractDirEntry(AbstractDirectoryEntry):
         """
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return 0
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
         return 0
 
-    def open(self, file_mode: t.Optional[str] = None) -> ProDOSFile:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> ProDOSFile:
         """
         Open a file
         """
@@ -642,7 +670,7 @@ class VolumeDirectoryHeader(ProDOSAbstractDirEntry):
             self.bit_map_pointer,
             self.total_blocks,
         ) = struct.unpack_from(VOLUME_DIRECTORY_HEADER_FORMAT, buffer, position)
-        self.storage_type = storage_type_name_length >> 4
+        self.prodos_storage_type = storage_type_name_length >> 4
         filename_length = storage_type_name_length & 0x0F
         self.filename = raw_filename[:filename_length].decode("ascii", errors="ignore")
         return self
@@ -651,7 +679,7 @@ class VolumeDirectoryHeader(ProDOSAbstractDirEntry):
         """
         Write the entry to a buffer
         """
-        storage_type_name_length = (self.storage_type << 4) | len(self.filename)
+        storage_type_name_length = (self.prodos_storage_type << 4) | len(self.filename)
         raw_filename = self.filename.ljust(15, "\0").encode("ascii")
         struct.pack_into(
             VOLUME_DIRECTORY_HEADER_FORMAT,
@@ -673,7 +701,7 @@ class VolumeDirectoryHeader(ProDOSAbstractDirEntry):
 
     def __str__(self) -> str:
         access = format_access(self.access)
-        return f"{self.filename:<15}  [{self.storage_type:X}] ---,----- {access}          {self.file_count:>7} files                    {format_time(self.creation_date)}"
+        return f"{self.filename:<15}  [{self.prodos_storage_type:X}] ---,----- {access}          {self.file_count:>7} files                    {format_time(self.creation_date)}"
 
     def __repr__(self) -> str:
         return str(self.__dict__)
@@ -756,7 +784,7 @@ class SubdirectoryHeader(ProDOSAbstractDirEntry):
             self.parent_entry_number,
             self.parent_entry_length,
         ) = struct.unpack_from(SUBDIRECTORY_HEADER_FORMAT, buffer, position)
-        self.storage_type = storage_type_name_length >> 4
+        self.prodos_storage_type = storage_type_name_length >> 4
         filename_length = storage_type_name_length & 0x0F
         self.filename = raw_filename[:filename_length].decode("ascii", errors="ignore")
         return self
@@ -765,7 +793,7 @@ class SubdirectoryHeader(ProDOSAbstractDirEntry):
         """
         Write the entry to a buffer
         """
-        storage_type_name_length = (self.storage_type << 4) | len(self.filename)
+        storage_type_name_length = (self.prodos_storage_type << 4) | len(self.filename)
         raw_filename = self.filename.ljust(15, "\0").encode("ascii")
         struct.pack_into(
             SUBDIRECTORY_HEADER_FORMAT,
@@ -788,7 +816,7 @@ class SubdirectoryHeader(ProDOSAbstractDirEntry):
 
     def __str__(self) -> str:
         access = format_access(self.access)
-        return f"{self.filename:<15}  [{self.storage_type:X}] ---,----- {access}          {self.file_count:>7} files                    {format_time(self.creation_date)}"
+        return f"{self.filename:<15}  [{self.prodos_storage_type:X}] ---,----- {access}          {self.file_count:>7} files                    {format_time(self.creation_date)}"
 
     def __repr__(self) -> str:
         return str(self.__dict__)
@@ -878,7 +906,7 @@ class FileEntry(ProDOSAbstractDirEntry):
             raw_last_mod_date,
             self.header_pointer,
         ) = struct.unpack_from(ENTRY_FORMAT, buffer, position)
-        self.storage_type = storage_type_name_length >> 4
+        self.prodos_storage_type = storage_type_name_length >> 4
         self.last_mod_date = prodos_to_date(raw_last_mod_date)
         filename_length = storage_type_name_length & 0x0F
         self.filename = raw_filename[:filename_length].decode("ascii", errors="ignore")
@@ -899,7 +927,7 @@ class FileEntry(ProDOSAbstractDirEntry):
         file_type: t.Optional[str] = None,  # optional file type
         aux_type: int = 0,  # optional aux type
         length_bytes: t.Optional[int] = None,  # optional length int bytes
-        resource_length_bytes: t.Optional[int] = None,  # not used
+        resource_size: t.Optional[int] = None,  # not used
     ) -> "FileEntry":
         """
         Create a new entry
@@ -910,7 +938,7 @@ class FileEntry(ProDOSAbstractDirEntry):
         """
         Write the entry to a buffer
         """
-        storage_type_name_length = (self.storage_type << 4) | len(self.filename)
+        storage_type_name_length = (self.prodos_storage_type << 4) | len(self.filename)
         raw_filename = self.filename.ljust(15, "\0").encode("ascii")
         eof0 = self.length & 0xFF
         eof1 = (self.length >> 8) & 0xFF
@@ -937,15 +965,22 @@ class FileEntry(ProDOSAbstractDirEntry):
             self.header_pointer,
         )
 
-    def read_bytes(self, file_mode: t.Optional[str] = None) -> bytes:
+    def read_bytes(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> bytes:
         """Get the content of the file"""
         data = super().read_bytes(IMAGE)
         if len(data) < self.length:  # sparse file - pad with zeros
             data += bytes(self.length - len(data))
         if self.prodos_file_type == BIN_FILE_TYPE:
             prodos_file_info = ProDOSFileInfo(self.access, self.prodos_file_type, self.aux_type)
-            data = encode_apple_single(prodos_file_info, data)
+            data = AppleSingle(data=data, prodos_file_info=prodos_file_info).write()
         return data
+
+    @property
+    def file_type(self) -> t.Optional[str]:
+        """
+        File type
+        """
+        return format_file_type(self.prodos_file_type)
 
     @abstractmethod
     def blocks(self, include_indexes: bool = False) -> t.Iterator[int]:
@@ -954,19 +989,19 @@ class FileEntry(ProDOSAbstractDirEntry):
         """
         pass
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return self.blocks_used
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
         return self.length
 
-    def open(self, file_mode: t.Optional[str] = None) -> ProDOSFile:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> ProDOSFile:
         """
         Open a file
         """
@@ -1001,7 +1036,7 @@ class FileEntry(ProDOSAbstractDirEntry):
     def __str__(self) -> str:
         access = format_access(self.access)
         file_type = format_file_type(self.prodos_file_type)
-        return f"{self.filename:<15}  [{self.storage_type:X}] {file_type},${self.aux_type:04X} {access}  {self.key_pointer:>7} {self.blocks_used:>7} blocks  {self.length:>9} bytes  {format_time(self.last_mod_date)}  {format_time(self.creation_date)}"
+        return f"{self.filename:<15}  [{self.prodos_storage_type:X}] {file_type},${self.aux_type:04X} {access}  {self.key_pointer:>7} {self.blocks_used:>7} blocks  {self.length:>9} bytes  {format_time(self.last_mod_date)}  {format_time(self.creation_date)}"
 
     def __repr__(self) -> str:
         return str(self.__dict__)
@@ -1025,7 +1060,7 @@ class RegularFileEntry(FileEntry):
         file_type: t.Optional[str] = None,  # optional file type
         aux_type: int = 0,  # optional aux type
         length_bytes: t.Optional[int] = None,  # optional length int bytes
-        resource_length_bytes: t.Optional[int] = None,  # not used
+        resource_size: t.Optional[int] = None,  # not used
     ) -> "FileEntry":
         """
         Create a new regular file
@@ -1033,20 +1068,20 @@ class RegularFileEntry(FileEntry):
         # Calculate how many blocks are needed
         if length <= 1:
             blocks_used = 1
-            storage_type = SEEDLING_FILE_STORAGE_TYPE
+            prodos_storage_type = SEEDLING_FILE_STORAGE_TYPE
         elif length <= 256:
             blocks_used = length + 1  # add index block
-            storage_type = SAPLING_FILE_STORAGE_TYPE
+            prodos_storage_type = SAPLING_FILE_STORAGE_TYPE
         else:
             blocks_used = length + ((length + 255) >> 8) + 1  # add index blocks and master index block
-            storage_type = TREE_FILE_STORAGE_TYPE
+            prodos_storage_type = TREE_FILE_STORAGE_TYPE
         # Check free space and allocate blocks
         if bitmap.free() < blocks_used:
             raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
         allocated_blocks = bitmap.allocate(blocks_used)
         # Create the entry
         self = cls(fs, parent)
-        self.storage_type = storage_type
+        self.prodos_storage_type = prodos_storage_type
         self.blocks_used = blocks_used  # blocks_used includes both index blocks and data blocks.
         self.length = length_bytes if length_bytes is not None else length * BLOCK_SIZE
         self.filename = filename
@@ -1099,7 +1134,7 @@ class RegularFileEntry(FileEntry):
         no more than 512 bytes
         (no more than 1 block)
         """
-        return self.storage_type == SEEDLING_FILE_STORAGE_TYPE
+        return self.prodos_storage_type == SEEDLING_FILE_STORAGE_TYPE
 
     def is_sapling_file(self) -> bool:
         """ "
@@ -1107,14 +1142,14 @@ class RegularFileEntry(FileEntry):
         more than 512 and no more than 128K bytes
         (more than 1 and no more than 256 blocks)
         """
-        return self.storage_type == SAPLING_FILE_STORAGE_TYPE
+        return self.prodos_storage_type == SAPLING_FILE_STORAGE_TYPE
 
     def is_tree_file(self) -> bool:
         """
         A tree file is a standard file that contains
         more than 128K bytes (more than 256 blocks)
         """
-        return self.storage_type == TREE_FILE_STORAGE_TYPE
+        return self.prodos_storage_type == TREE_FILE_STORAGE_TYPE
 
     def blocks(self, include_indexes: bool = False) -> t.Iterator[int]:
         """
@@ -1193,7 +1228,7 @@ class DirectoryFileEntry(AbstractDirectoryFileEntry):
         file_type: t.Optional[str] = None,  # unused
         aux_type: int = 0,  # unused
         length_bytes: t.Optional[int] = None,  # unused
-        resource_length_bytes: t.Optional[int] = None,  # unused
+        resource_size: t.Optional[int] = None,  # unused
     ) -> "FileEntry":
         """
         Create a new directory
@@ -1202,7 +1237,7 @@ class DirectoryFileEntry(AbstractDirectoryFileEntry):
         # Create the directory entry in the parent directory
         self = DirectoryFileEntry(fs, parent)
         self.filename = filename
-        self.storage_type = DIRECTORY_FILE_SOURCE_TYPE
+        self.prodos_storage_type = DIRECTORY_FILE_SOURCE_TYPE
         self.prodos_file_type = DIR_FILE_TYPE
         self.raw_creation_date = date_to_prodos(creation_date or datetime.now())
         self.access = access
@@ -1231,7 +1266,7 @@ class DirectoryFileEntry(AbstractDirectoryFileEntry):
 
         # Write the header entry
         header = SubdirectoryHeader(fs, self)
-        header.storage_type = SUBDIRECTORY_HEADER_STORAGE_TYPE
+        header.prodos_storage_type = SUBDIRECTORY_HEADER_STORAGE_TYPE
         header.filename = filename
         header.raw_creation_date = date_to_prodos(creation_date or datetime.now())
         header.version = parent.version if parent is not None else 0
@@ -1387,7 +1422,7 @@ class DirectoryFileEntry(AbstractDirectoryFileEntry):
         # Delete the directory
         return super().delete()
 
-    def open(self, file_mode: t.Optional[str] = None) -> ProDOSFile:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> ProDOSFile:
         """
         Open a file
         """
@@ -1399,7 +1434,7 @@ class VolumeDirectoryFileEntry(DirectoryFileEntry):
     Dummy Volume Directory entry
     """
 
-    storage_type: int = DIRECTORY_FILE_SOURCE_TYPE
+    prodos_storage_type: int = DIRECTORY_FILE_SOURCE_TYPE
     key_pointer: int = VOLUME_DIRECTORY_BLOCK
     header: VolumeDirectoryHeader
 
@@ -1433,7 +1468,7 @@ class VolumeDirectoryFileEntry(DirectoryFileEntry):
             fs.write_block(block_data, block_nr)
         # Write the header entry
         self.header = VolumeDirectoryHeader(fs, self)
-        self.header.storage_type = VOLUME_DIRECTORY_HEADER_STORAGE_TYPE
+        self.header.prodos_storage_type = VOLUME_DIRECTORY_HEADER_STORAGE_TYPE
         self.header.filename = volume_name.strip("/").upper()
         self.header.raw_creation_date = date_to_prodos(creation_date or datetime.now())
         self.header.version = 0
@@ -1467,7 +1502,7 @@ class ExtendedFileEntry(FileEntry):
         file_type: t.Optional[str] = None,  # optional file type
         aux_type: int = 0,  # optional aux type
         length_bytes: t.Optional[int] = None,  # optional length int bytes
-        resource_length_bytes: t.Optional[int] = None,  # length of the resource fork in bytes
+        resource_size: t.Optional[int] = None,  # length of the resource fork in bytes
     ) -> "FileEntry":
         """
         Create a new extended file entry
@@ -1479,7 +1514,7 @@ class ExtendedFileEntry(FileEntry):
         allocated_blocks = bitmap.allocate(blocks_used)
         # Create the entry
         self = ExtendedFileEntry(fs, parent)
-        self.storage_type = EXTENDED_FILE_STORAGE_TYPE
+        self.prodos_storage_type = EXTENDED_FILE_STORAGE_TYPE
         self.blocks_used = 1
         self.length = BLOCK_SIZE
         self.filename = filename
@@ -1510,13 +1545,13 @@ class ExtendedFileEntry(FileEntry):
             fs=self.fs,
             parent=None,
             filename="RESOURCE.FORK",
-            length=int(math.ceil((resource_length_bytes or 0) / BLOCK_SIZE)),
+            length=int(math.ceil((resource_size or 0) / BLOCK_SIZE)),
             bitmap=bitmap,
             creation_date=creation_date,
             access=access,
             file_type=file_type,
             aux_type=aux_type,
-            length_bytes=resource_length_bytes or 0,
+            length_bytes=resource_size or 0,
         )
         # Write block
         extended_key_block = bytearray(BLOCK_SIZE)
@@ -1548,29 +1583,59 @@ class ExtendedFileEntry(FileEntry):
         yield ExtendedFileFork.read(self.fs, self, extended_key_block, EXTENDED_DATA_FORK_POS)
         yield ExtendedFileFork.read(self.fs, self, extended_key_block, EXTENDED_RESOURCE_FORK_POS)
 
-    def open(self, file_mode: t.Optional[str] = None, fork: str = "DATA.FORK") -> ProDOSFile:
+    def get_fork(self, fork: str) -> "ExtendedFileFork":
+        """
+        Get the data fork / resource fork entry
+        """
+        fork = check_fork(fork)
+        extended_key_block = self.fs.read_block(self.key_pointer)
+        if fork == RESOURCE_FORK:
+            return ExtendedFileFork.read(self.fs, self, extended_key_block, EXTENDED_RESOURCE_FORK_POS)
+        else:
+            return ExtendedFileFork.read(self.fs, self, extended_key_block, EXTENDED_DATA_FORK_POS)
+
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = "DATA.FORK") -> ProDOSFile:
         """
         Open the data fork / resource fork
         """
-        extended_key_block = self.fs.read_block(self.key_pointer)
-        if fork.upper() == "RESOURCE.FORK":
-            resource_fork = ExtendedFileFork.read(self.fs, self, extended_key_block, EXTENDED_RESOURCE_FORK_POS)
-            return ProDOSFile(resource_fork)
-        else:
-            data_fork = ExtendedFileFork.read(self.fs, self, extended_key_block, EXTENDED_DATA_FORK_POS)
-            return ProDOSFile(data_fork)
+        return ProDOSFile(self.get_fork(fork or DATA_FORK))
 
-    def read_bytes(self, file_mode: t.Optional[str] = None) -> bytes:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
-        Get the data/resource/metadata as AppleSingle
+        Get the length in blocks
         """
-        extended_key_block = self.fs.read_block(self.key_pointer)
-        prodos_file_info = ProDOSFileInfo(self.access, self.prodos_file_type, self.aux_type)
-        data_fork = ExtendedFileFork.read(self.fs, self, extended_key_block, EXTENDED_DATA_FORK_POS)
-        data = data_fork.read_bytes()
-        resource_fork = ExtendedFileFork.read(self.fs, self, extended_key_block, EXTENDED_RESOURCE_FORK_POS)
-        resource = resource_fork.read_bytes()
-        return encode_apple_single(prodos_file_info, data, resource)
+        if fork:
+            return self.get_fork(fork).get_length()
+        else:
+            return self.blocks_used
+
+    def get_size(self, fork: t.Optional[str] = None) -> int:
+        """
+        Get file size in bytes
+        """
+        if fork:
+            return self.get_fork(fork).get_size()
+        else:
+            return self.length
+
+    def read_bytes(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> bytes:
+        """
+        Get the individual fork data or the data/resource as AppleSingle
+        """
+        if file_mode == ASCII and not fork:
+            fork = DATA_FORK
+        if fork:
+            with self.open(file_mode=file_mode, fork=fork) as f:
+                return f.read_block(0, READ_FILE_FULL)[: f.get_size()]
+        else:
+            # Return the data and resource forks as AppleSingle
+            extended_key_block = self.fs.read_block(self.key_pointer)
+            prodos_file_info = ProDOSFileInfo(self.access, self.prodos_file_type, self.aux_type)
+            data_fork = ExtendedFileFork.read(self.fs, self, extended_key_block, EXTENDED_DATA_FORK_POS)
+            data = data_fork.read_bytes()
+            resource_fork = ExtendedFileFork.read(self.fs, self, extended_key_block, EXTENDED_RESOURCE_FORK_POS)
+            resource = resource_fork.read_bytes()
+            return AppleSingle(data=data, resource=resource, prodos_file_info=prodos_file_info).write()
 
 
 class ExtendedFileFork(RegularFileEntry):
@@ -1614,7 +1679,7 @@ class ExtendedFileFork(RegularFileEntry):
         self.prodos_file_type = parent.prodos_file_type
         self.access = parent.access
         (
-            self.storage_type,
+            self.prodos_storage_type,
             self.key_pointer,
             self.blocks_used,
             eof0,
@@ -1635,7 +1700,7 @@ class ExtendedFileFork(RegularFileEntry):
             EXTENDED_ENTRY_FORMAT,
             buffer,
             position,
-            self.storage_type,
+            self.prodos_storage_type,
             self.key_pointer,
             self.blocks_used,
             eof0,
@@ -1644,7 +1709,7 @@ class ExtendedFileFork(RegularFileEntry):
         )
 
     def __str__(self) -> str:
-        return f"{self.filename:<15}  [{self.storage_type:X}] ---,------        {self.key_pointer:>7} {self.blocks_used:>7} blocks  {self.length:>9} bytes"
+        return f"{self.filename:<15}  [{self.prodos_storage_type:X}] ---,------        {self.key_pointer:>7} {self.blocks_used:>7} blocks  {self.length:>9} bytes"
 
     def __repr__(self) -> str:
         return str(self.__dict__)
@@ -1799,6 +1864,15 @@ class ProDOSFilesystem(AbstractAppleDiskFilesystem):
     fs_name = "prodos"
     fs_description = "Apple II ProDOS"
     fs_platforms = ["apple2", "apple3"]
+    fs_forks = [DATA_FORK, RESOURCE_FORK]
+    fs_entry_metadata = [
+        "access",
+        "aux_type",
+        "creation_date",
+        "file_type",
+        "prodos_file_type",
+        "prodos_storage_type",
+    ]
 
     pwd: str  # Current working directory
     volume_name: str  # Volume name
@@ -1917,70 +1991,65 @@ class ProDOSFilesystem(AbstractAppleDiskFilesystem):
         self,
         fullname: str,
         content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[t.Union[date, datetime]] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
+        fork: t.Optional[str] = None,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
         file_mode: t.Optional[str] = None,
-        access: t.Optional[int] = None,  # optional access
-        aux_type: t.Optional[int] = None,  # optional auxiliary type
     ) -> None:
         """
         Write content to a file
         """
+        # TODO fork
         # Check if the file is an AppleSingle file and extract the content and metadata
+        metadata = metadata or {}
         resource: t.Optional[bytes] = None
         try:
-            content, resource, prodos_file_info = decode_apple_single(content)
-            if prodos_file_info is not None:
-                if file_type is None:
-                    file_type = format_file_type(prodos_file_info.file_type)
-                if access is None:
-                    access = prodos_file_info.access
-                if aux_type is None:
-                    aux_type = prodos_file_info.aux_type
+            aps = AppleSingle.read(content)
+            if aps.data is None:
+                raise ValueError("Data fork not found")
+            content = aps.data
+            resource = aps.resource
+            if aps.prodos_file_info is not None:
+                if not metadata.get("file_type"):
+                    metadata["file_type"] = format_file_type(aps.prodos_file_info.file_type)
+                if not metadata.get("access"):
+                    metadata["access"] = aps.prodos_file_info.access
+                if not metadata.get("aux_type"):
+                    metadata["aux_type"] = aps.prodos_file_info.aux_type
         except ValueError:
             pass
 
-        length_bytes = len(content)
-        number_of_blocks = int(math.ceil(length_bytes / BLOCK_SIZE))
         # If file has a resource fork, create an extended file
         entry = self.create_file(
             fullname=fullname,
-            number_of_blocks=number_of_blocks,
-            creation_date=creation_date,
-            file_type=file_type,
-            access=access,
-            aux_type=aux_type,
-            length_bytes=length_bytes,
-            resource_length_bytes=len(resource) if resource is not None else None,
+            size=len(content),
+            metadata=metadata,
+            resource_size=len(resource) if resource is not None else None,
         )
-        if entry is not None:
-            if resource is not None:
-                # Write the resource fork
-                resource_number_of_blocks = int(math.ceil(len(resource) / BLOCK_SIZE))
-                resource = resource + (b"\0" * BLOCK_SIZE)  # pad with zeros
-                with entry.open(file_type, fork="RESOURCE.FORK") as f:  # type: ignore
-                    f.write_block(resource, block_number=0, number_of_blocks=resource_number_of_blocks)
-            # Write the data fork
-            content = content + (b"\0" * BLOCK_SIZE)  # pad with zeros
-            with entry.open(file_mode) as f:
-                f.write_block(content, block_number=0, number_of_blocks=number_of_blocks)
+        if resource is not None:
+            # Write the resource fork
+            with entry.open(fork=RESOURCE_FORK) as f:  # type: ignore
+                f.write(resource)
+        # Write the data fork
+        with entry.open(file_mode) as f:
+            f.write(content)
 
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[t.Union[date, datetime]] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
-        access: t.Optional[int] = None,  # optional access
-        aux_type: t.Optional[int] = None,  # optional auxiliary type
-        length_bytes: t.Optional[int] = None,  # optional length in bytes
-        resource_length_bytes: t.Optional[int] = None,  # optional resource fork length in bytes
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
+        resource_size: t.Optional[int] = None,  # optional resource fork length in bytes
     ) -> "FileEntry":
         """
         Create a new file with a given length in number of blocks
         """
         from .ppm import PPMDirectoryEntry, PPMVolumeEntry
 
+        metadata = metadata or {}
+        creation_date = metadata.get("creation_date", datetime.now())
+        access = metadata.get("access", DEFAULT_ACCESS)
+        file_type = metadata.get("file_type")
+        aux_type = metadata.get("aux_type", 0)
         fullname = prodos_normpath(fullname, self.pwd)
         dirname, filename = prodos_split(fullname)
         # Delete the file if it already exists
@@ -2001,11 +2070,12 @@ class ProDOSFilesystem(AbstractAppleDiskFilesystem):
         elif filename == PASCAL_AREA_NAME:
             # If the name is PASCAL.AREA, create a Pascal Area
             file_entry_cls = PPMDirectoryEntry
-        elif resource_length_bytes is not None:
+        elif resource_size is not None:
             # If file has a resource fork, create an extended file
             file_entry_cls = ExtendedFileEntry
         else:
             file_entry_cls = RegularFileEntry
+        number_of_blocks = int(math.ceil(size / BLOCK_SIZE))
         entry = file_entry_cls.create(
             fs=self,
             parent=parent,
@@ -2015,9 +2085,9 @@ class ProDOSFilesystem(AbstractAppleDiskFilesystem):
             creation_date=creation_date,
             access=access if access is not None else DEFAULT_ACCESS,
             file_type=file_type,
-            aux_type=aux_type if aux_type is not None else 0,
-            length_bytes=length_bytes if length_bytes is not None else number_of_blocks * BLOCK_SIZE,
-            resource_length_bytes=resource_length_bytes,
+            aux_type=aux_type,
+            length_bytes=size,
+            resource_size=resource_size,
         )
         bitmap.write()
         return entry
@@ -2026,7 +2096,7 @@ class ProDOSFilesystem(AbstractAppleDiskFilesystem):
         self,
         fullname: str,
         options: t.Dict[str, t.Union[bool, str]],
-    ) -> t.Optional["DirectoryFileEntry"]:
+    ) -> "DirectoryFileEntry":
         """
         Create a new directory
         """
@@ -2108,7 +2178,7 @@ class ProDOSFilesystem(AbstractAppleDiskFilesystem):
                 entry_dict["storage_type_name"] = entry.storage_type_name
                 if hasattr(entry, "blocks"):
                     entry_dict["blocks"] = list(entry.blocks())  # type: ignore
-                sys.stdout.write(dump_struct(entry_dict) + "\n")
+                sys.stdout.write(dump_struct(entry_dict, newline=True))
                 if hasattr(entry, "iterdir"):
                     # Dump the directory entries
                     sys.stdout.write(f"\n{H1}{H2}")
@@ -2116,8 +2186,8 @@ class ProDOSFilesystem(AbstractAppleDiskFilesystem):
                         sys.stdout.write(f"{child}\n")
         else:
             # Dump the entire filesystem
-            sys.stdout.write(dump_struct(self.__dict__))
-            sys.stdout.write(f"\n\n{H1}{H2}")
+            sys.stdout.write(dump_struct(self.__dict__, newline=True))
+            sys.stdout.write(f"\n{H1}{H2}")
             for x in self.filter_entries_list("*", include_all=True, wildcard=True):
                 sys.stdout.write(f"{x}\n")
 

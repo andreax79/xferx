@@ -229,6 +229,7 @@ class DOS15DirectoryEntry(AbstractDirectoryEntry):
     https://bitsavers.org/pdf/dec/pdp15/DEC-15-ODFFA-B-D_DOS-15_System_Manual_197408.pdf
     """
 
+    fs: "DOS15Filesystem"
     directory: "UserFileDirectoryBlock"
     file_number: int = 0  # File number in the directory
     filename: str  # Filename
@@ -242,6 +243,7 @@ class DOS15DirectoryEntry(AbstractDirectoryEntry):
     raw_creation_date: int
 
     def __init__(self, directory: "UserFileDirectoryBlock"):
+        self.fs = directory.fs
         self.directory = directory
 
     @classmethod
@@ -299,13 +301,13 @@ class DOS15DirectoryEntry(AbstractDirectoryEntry):
     #     """
     #     return ADSSBitmap.read(self.directory.fs, self.file_number)
 
-    def get_length(self) -> int:
+    def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         return self.length
 
-    def get_size(self) -> int:
+    def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
@@ -333,13 +335,13 @@ class DOS15DirectoryEntry(AbstractDirectoryEntry):
         """
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
 
-    def open(self, file_type: t.Optional[str] = None) -> DOS15File:
+    def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> DOS15File:
         """
         Open a file
         """
-        return DOS15File(self, file_type)
+        return DOS15File(self, file_mode)
 
-    def read_bytes(self, file_mode: t.Optional[str] = None) -> bytes:
+    def read_bytes(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> bytes:
         """Get the content of the file"""
         if file_mode is None:
             file_mode = IMAGE
@@ -358,10 +360,6 @@ class DOS15DirectoryEntry(AbstractDirectoryEntry):
                     words = f.read_words_block(i)[:-2]
                     result += from_18bit_words_to_bytes(words, IMAGE)
             return bytes(result)
-
-    @property
-    def fs(self) -> "DOS15Filesystem":
-        return self.directory.fs
 
     def __str__(self) -> str:
         return f"{self.file_number:>2}  {self.filename:<6} {self.extension:<3}  {'Y' if self.is_active else 'N'}  {self.block_number:4}  {self.length:4}"
@@ -668,6 +666,11 @@ class DOS15Filesystem(AbstractFilesystem):
     fs_name = "dos15"
     fs_description = "PDP-15 DOS-15"
     fs_platforms = ["pdp-9", "pdp-15"]
+    fs_entry_metadata = [
+        "creation_date",
+        "protection_code",
+    ]
+
     uic: str = ""  # current User Identification Code (only for disk, not DECtape)
     dev: BlockDevice18Bit
 
@@ -760,9 +763,8 @@ class DOS15Filesystem(AbstractFilesystem):
     def create_file(
         self,
         fullname: str,
-        number_of_blocks: int,  # length in blocks
-        creation_date: t.Optional[date] = None,  # optional creation date
-        file_type: t.Optional[str] = None,
+        size: int,  # Size in bytes
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
     ) -> DOS15DirectoryEntry:
         """
         Create a new file with a given length in number of blocks
@@ -778,8 +780,8 @@ class DOS15Filesystem(AbstractFilesystem):
         self,
         fullname: str,
         content: t.Union[bytes, bytearray],
-        creation_date: t.Optional[date] = None,
-        file_type: t.Optional[str] = None,
+        fork: t.Optional[str] = None,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
         file_mode: t.Optional[str] = None,
     ) -> None:
         raise OSError(errno.EROFS, os.strerror(errno.EROFS))
@@ -880,7 +882,13 @@ class DOS15Filesystem(AbstractFilesystem):
                         f"{entry.creation_date}\n"
                     )
 
-    def dump(self, fullname: t.Optional[str], start: t.Optional[int] = None, end: t.Optional[int] = None) -> None:
+    def dump(
+        self,
+        fullname: t.Optional[str],
+        start: t.Optional[int] = None,
+        end: t.Optional[int] = None,
+        fork: t.Optional[str] = None,
+    ) -> None:
         """Dump the content of a file or a range of blocks"""
         if fullname:
             entry = self.get_file_entry(fullname)

@@ -113,7 +113,7 @@ def test_rt11_init():
     x2 = shell.volumes.read_bytes("ou:10.txt")
     assert len(x2) == 512
     with shell.volumes.open_file("ou:10.txt") as f:
-        print(f.entry)
+        print(f.entry.metadata)
         pass
 
     # Test init mounted volume

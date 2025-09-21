@@ -163,7 +163,7 @@ class PPMDirectoryEntry(AbstractDirectoryFileEntry):
         file_type: t.Optional[str] = None,  # optional file type
         aux_type: int = 0,  # optional aux type
         length_bytes: t.Optional[int] = None,  # optional length int bytes
-        resource_length_bytes: t.Optional[int] = None,  # not used
+        resource_size: t.Optional[int] = None,  # not used
     ) -> "PPMDirectoryEntry":
         """
         Create a new Pascal ProFile Manager (PPM) Partition
@@ -179,7 +179,7 @@ class PPMDirectoryEntry(AbstractDirectoryFileEntry):
         self = cls(fs, parent)
         self.ppm_name = "PPM"
         self.volumes = 0
-        self.storage_type = PASCAL_AREA_STORAGE_TYPE
+        self.prodos_storage_type = PASCAL_AREA_STORAGE_TYPE
         self.blocks_used = length
         self.length = length_bytes if length_bytes is not None else length * BLOCK_SIZE
         self.filename = filename
@@ -373,7 +373,7 @@ class PPMVolumeEntry(RegularFileEntry):
         self.prodos_file_type = parent.prodos_file_type
         self.access = parent.access
         self.length = self.blocks_used * BLOCK_SIZE
-        self.storage_type = PASCAL_AREA_STORAGE_TYPE
+        self.prodos_storage_type = PASCAL_AREA_STORAGE_TYPE
         return self
 
     @classmethod
@@ -389,7 +389,7 @@ class PPMVolumeEntry(RegularFileEntry):
         file_type: t.Optional[str] = None,  # not used
         aux_type: int = 0,  # not used
         length_bytes: t.Optional[int] = None,  # not used
-        resource_length_bytes: t.Optional[int] = None,  # not used
+        resource_size: t.Optional[int] = None,  # not used
     ) -> "PPMVolumeEntry":
         """
         Create a new Pascal Volume
@@ -400,7 +400,7 @@ class PPMVolumeEntry(RegularFileEntry):
         self.description = ""
         self.default_unit = 0
         self.write_protection = 0
-        self.storage_type = PASCAL_AREA_STORAGE_TYPE
+        self.prodos_storage_type = PASCAL_AREA_STORAGE_TYPE
         self.blocks_used = length
         self.length = length * BLOCK_SIZE
         self.access = access
