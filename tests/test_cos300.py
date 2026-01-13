@@ -67,7 +67,6 @@ def test_cos_codes_to_ascii():
 
 
 class MockFilesytem(COS300Filesystem):
-
     number_of_blocks = 200
 
     def __init__(self):

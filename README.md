@@ -30,7 +30,7 @@ XFERX is an utility for transferring files between various file systems.
 | Apple II ProDOS   | Yes               | Yes               | Yes               | Yes               | Yes               |
 | Apple II Pascal   | Yes               | Yes               | Yes               | Yes               | N/A               |
 | Apple DOS 3.x     | Yes               | Yes               | Yes               | Yes               | N/A               |
-| MFS (Macintosh Filesystem)    | Yes               | No                | Yes               | Yes               | N/A               |
+| MFS (Macintosh Filesystem)    | Yes               | Yes               | Yes               | Yes               | N/A               |
 | Data General DOS/RDOS         | Yes               | Yes               | Yes               | No                | No                |
 | Data General DOS/RDOS MagTape | Yes               | No                | No                | Yes               | N/A               |
 | Data General DOS/RDOS Dump    | Yes               | No                | No                | No                | No                |

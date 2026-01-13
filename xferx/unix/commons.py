@@ -212,7 +212,6 @@ class UNIXFile(AbstractFile):
 
 
 class UNIXInode(ABC):
-
     fs: "UNIXFilesystem"
     inode_num: int  #       inode number
     flags: int  #           flags
@@ -291,7 +290,6 @@ class UNIXInode(ABC):
 
 
 class UNIXDirectoryEntry(AbstractDirectoryEntry):
-
     fs: "UNIXFilesystem"
     _inode: t.Optional["UNIXInode"]
     inode_num: int  # Inode number
@@ -760,7 +758,6 @@ class UNIXFilesystem(AbstractBlockFilesystem):
 
 
 class Bitmap:
-
     # fs: "ProDOSFilesystem"
     bitmaps: t.List[int]
     # bitmap_blocks: int  # Number of bitmap blocks
@@ -885,7 +882,6 @@ class Bitmap:
 
 
 class InodeBitmap:
-
     bitmaps: t.List[int]
 
     @property

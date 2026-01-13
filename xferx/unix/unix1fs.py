@@ -70,7 +70,6 @@ assert struct.calcsize(V1_INODE_FORMAT) == V1_INODE_SIZE
 
 
 class UNIXInode1(UNIXInode):
-
     @classmethod
     def read(cls, fs: "UNIXFilesystem", inode_num: int, buffer: bytes, position: int = 0) -> "UNIXInode":
         self = UNIXInode1(fs)

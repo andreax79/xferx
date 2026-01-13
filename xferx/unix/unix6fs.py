@@ -27,7 +27,6 @@ from .unix4fs import V4_INODE_FORMAT, V4_NADDR, UNIX4Filesystem, UNIXInode4
 
 
 class UNIXInode6(UNIXInode4):
-
     @classmethod
     def read(cls, fs: "UNIXFilesystem", inode_num: int, buffer: bytes, position: int = 0) -> "UNIXInode":
         self = UNIXInode6(fs)

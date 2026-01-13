@@ -24,7 +24,6 @@ __all__ = ["AbstractDevice"]
 
 
 class AbstractDevice(ABC):
-
     @abstractmethod
     def get_size(self) -> int:
         """

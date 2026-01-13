@@ -320,7 +320,6 @@ def words_dump(data: t.List[int], words_per_line: int = 8) -> None:
 
 
 class DGDOSBitmap:
-
     fs: "DGDOSFilesystem"
     blocks: t.List[int]
     bitmaps: t.List[int]
@@ -1662,7 +1661,7 @@ class DGDOSFilesystem(AbstractBlockFilesystem):
                     sys.stdout.write(f"** #{i} {sys_dir_block}\n")
                 for entry in sys_dir_block.entries_list:
                     if options.get("full") or not entry.is_empty:
-                        sys.stdout.write(f"{entry} -- {entry.filename_hash() }\n")
+                        sys.stdout.write(f"{entry} -- {entry.filename_hash()}\n")
                         # sys.stdout.write(f"{entry}\n")
         else:
             # Display the file information

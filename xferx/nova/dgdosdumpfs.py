@@ -475,10 +475,7 @@ class DGDOSDumpEntry(AbstractDirectoryEntry):
             creation_date = self.creation_date.strftime("%m/%d/%y") if self.creation_date else ""
             return (
                 # f"{self.filename:>10s}.{self.extension:<2s} "
-                f"{self.fullname:<30s} "
-                f"{attr:<12} "
-                f"{self.get_size():>10d}  "
-                f"{creation_date:<8}  "
+                f"{self.fullname:<30s} {attr:<12} {self.get_size():>10d}  {creation_date:<8}  "
                 # f"{self.addresses[0]:>10}"
             )
 

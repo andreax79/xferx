@@ -20,7 +20,6 @@ DSK = "tests/dsk/decsys.dsk"
 
 
 class MockFilesytem(DECSysFilesystem):
-
     def __init__(self, t):
         self.t = t
 

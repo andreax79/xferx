@@ -26,7 +26,6 @@ from .abstract import AbstractDevice
 
 
 class Tape(AbstractDevice):
-
     def __init__(self, file: "AbstractFile"):
         self.f = file
 

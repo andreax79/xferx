@@ -417,7 +417,6 @@ class ProDOSFile(AbstractFile):
 
 
 class IndexBlock:
-
     fs: "ProDOSFilesystem"
     block_number: int  # Index block number
     indexes: t.List[int]  # 256 block indexes
@@ -1184,7 +1183,6 @@ class RegularFileEntry(FileEntry):
 
 
 class AbstractDirectoryFileEntry(FileEntry):
-
     @abstractmethod
     def update_dir_entry(
         self,
@@ -1716,7 +1714,6 @@ class ExtendedFileFork(RegularFileEntry):
 
 
 class ProDOSBitmap:
-
     fs: "ProDOSFilesystem"
     bitmaps: t.List[int]
     bitmap_blocks: int  # Number of bitmap blocks

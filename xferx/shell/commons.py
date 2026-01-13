@@ -316,7 +316,6 @@ ShellCommand = t.Callable[["ShellContext", t.List[str]], None]
 
 
 class Commands:
-
     commands: t.Dict[str, ShellCommand] = {}
     cmd_matching: PartialMatching
 

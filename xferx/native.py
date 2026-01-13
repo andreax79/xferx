@@ -66,7 +66,6 @@ def path_to_str(path: Path) -> str:
 
 
 class NativeFile(AbstractFile):
-
     f: t.Union[io.BufferedReader, io.BufferedRandom]
 
     def __init__(self, filename_or_path: t.Union[str, Path]):
@@ -274,7 +273,6 @@ class NativeDirectoryEntry(AbstractDirectoryEntry):
 
 
 class NativeFilesystem(AbstractFilesystem):
-
     fs_name = "native"  # Filesystem name
     fs_description = "Native Filesystem"  # Filesystem description
 

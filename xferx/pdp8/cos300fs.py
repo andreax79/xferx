@@ -183,7 +183,6 @@ def ascii_to_cos_codes(text: t.Union[bytes, bytearray]) -> t.List[int]:
 
 
 class COS300DirectoryEntry(OS8DirectoryEntry):
-
     @property
     def file_type(self) -> t.Optional[str]:
         """File type"""

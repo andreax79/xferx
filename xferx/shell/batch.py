@@ -28,7 +28,6 @@ __all__ = ["BatchContext"]
 
 
 class BatchContext(ShellContext):
-
     lines: t.List[str]
     labels: t.Dict[str, int]
     current_line: int = 0

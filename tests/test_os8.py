@@ -35,7 +35,6 @@ def test_rad50_word12():
 
 
 class MockFilesytem(OS8Filesystem):
-
     number_of_blocks = 200
 
     def __init__(self):

@@ -202,9 +202,7 @@ class UNIX0File(UNIXFile):
         Write block(s) of data to the file
         """
         if (
-            self.closed
-            or block_number < 0
-            or number_of_blocks < 0
+            self.closed or block_number < 0 or number_of_blocks < 0
             # or block_number + number_of_blocks > self.inode.get_length()
         ):
             raise OSError(errno.EIO, os.strerror(errno.EIO))

@@ -1,8 +1,7 @@
 SHELL=/bin/bash -e
 
 help:
-	@echo - make black      	Format code
-	@echo - make isort      	Sort imports
+	@echo - make ruff           Format code and sort imports
 	@echo - make lint       	Run linter
 	@echo - make typecheck  	Check types
 	@echo - make clean      	Clean the project directory
@@ -13,15 +12,11 @@ help:
 
 .PHONY: lint
 lint:
-	@uv run flake8 xferx
+	@uv run ruff check xferx # tests
 
-.PHONY: isort
-isort:
-	@uv run isort --profile black xferx.py xferx tests
-
-.PHONY: black
-black: isort
-	@uv run black -S xferx.py xferx tests
+.PHONY: ruff
+ruff:
+	@uv run ruff format xferx.py xferx tests
 
 .PHONY: typecheck
 typecheck:
@@ -39,7 +34,7 @@ test:
 coverage:
 	@uv run pytest --cov --cov-report=term-missing
 
-.PHONY: typecheck
+.PHONY: venv
 venv:
 	@uv venv
 	@uv pip install -e .

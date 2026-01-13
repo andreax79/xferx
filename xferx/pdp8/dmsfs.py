@@ -488,7 +488,7 @@ class StorageAllocationMapBlock:
         for i, b in enumerate(self.sam):
             if i % 8 == 0:
                 buf.write("\n")
-            buf.write(f"{i+offset:>4}:{b:>2}  ")
+            buf.write(f"{i + offset:>4}:{b:>2}  ")
         return buf.getvalue()
 
 

@@ -232,7 +232,6 @@ class PascalFile(AbstractFile):
 
 
 class VolumeDirectory:
-
     fs: "PascalFilesystem"
     start_block: int  # Start block
     following_block: int  # Last block + 1
@@ -390,7 +389,6 @@ class VolumeDirectory:
 
 
 class PascalDirectoryEntry(AbstractDirectoryEntry):
-
     fs: "PascalFilesystem"
     start_block: int  # Start block
     following_block: int  # Last block + 1

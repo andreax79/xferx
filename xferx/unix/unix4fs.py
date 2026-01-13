@@ -79,7 +79,6 @@ assert struct.calcsize(V4_INODE_FORMAT) == V4_INODE_SIZE
 
 
 class UNIXInode4(UNIXInode):
-
     @classmethod
     def read(cls, fs: "UNIXFilesystem", inode_num: int, buffer: bytes, position: int = 0) -> "UNIXInode":
         self = UNIXInode4(fs)
