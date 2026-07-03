@@ -478,7 +478,7 @@ class SOLODirectoryEntry(SOLOAbstractSortableDirectoryEntry):
         return f"{self.filename:<12}  \
 {self.file_type:<8}  \
 {'PROT' if self.protected else '    '}  \
-Key: {self.hash_key:>6} {'('+str(self.searchlength)+')':<6}  \
+Key: {self.hash_key:>6} {'(' + str(self.searchlength) + ')':<6}  \
 Length: {self.length:>4}  \
 Map: {self.page_map_block_number:>4}  \
 Blocks: {[x for x in self.page_map]}"
@@ -566,7 +566,6 @@ class SOLOSegmentDirectoryEntry(SOLOAbstractSortableDirectoryEntry):
 
 
 class SOLOBitmap:
-
     fs: "SOLOFilesystem"
     bitmaps: t.List[int]  # 2(blocks) x 30(groups) x 120bit integer
 

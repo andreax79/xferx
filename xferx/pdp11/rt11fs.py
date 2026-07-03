@@ -146,6 +146,7 @@ class RT11File(AbstractFile):
     entry: "RT11DirectoryEntry"
     closed: bool
     size: int
+    sector_size: int = BLOCK_SIZE
 
     def __init__(self, entry: "RT11DirectoryEntry"):
         self.entry = entry
@@ -216,7 +217,6 @@ class RT11File(AbstractFile):
 
 
 class RT11DirectoryEntry(AbstractDirectoryEntry):
-
     fs: "RT11Filesystem"
     partition: "RT11Partition"
     status: int = 0

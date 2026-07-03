@@ -40,18 +40,27 @@ class BlockDevice(AbstractDevice):
 
     f: "AbstractFile"
     size: int  # Block device size, in bytes
+    sector_size: int  # Sector size, in bytes
 
-    def __init__(self, file: "AbstractFile"):
+    def __init__(self, file: "AbstractFile", sector_size: int = BLOCK_SIZE):
         self.f = file
         self.size = self.f.get_size()
-        self.sector_size = BLOCK_SIZE
+        self.sector_size = sector_size
 
     def read_block(
         self,
         block_number: int,
         number_of_blocks: int = 1,
     ) -> bytes:
-        return self.f.read_block(block_number, number_of_blocks)
+        """
+        Read block(s) of data from the disk
+        """
+        if self.sector_size == self.f.sector_size:
+            return self.f.read_block(block_number, number_of_blocks)
+        else:
+            position = block_number * self.sector_size
+            self.f.seek(position)  # not thread safe...
+            return self.f.read(number_of_blocks * self.sector_size)
 
     def write_block(
         self,
@@ -59,6 +68,9 @@ class BlockDevice(AbstractDevice):
         block_number: int,
         number_of_blocks: int = 1,
     ) -> None:
+        """
+        Write block(s) to disk
+        """
         if block_number < 0 or number_of_blocks < 0:
             raise OSError(errno.EIO, os.strerror(errno.EIO))
         self.f.write_block(buffer, block_number, number_of_blocks)

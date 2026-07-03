@@ -135,7 +135,7 @@ class RetrievalPointer:
     lbn: int
 
     def __str__(self) -> str:
-        return f"[{self.j}:{self.j+self.count}] => [{self.lbn}:{self.lbn + self.count}]"
+        return f"[{self.j}:{self.j + self.count}] => [{self.lbn}:{self.lbn + self.count}]"
 
     def __repr__(self) -> str:
         return str(self)

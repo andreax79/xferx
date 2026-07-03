@@ -67,6 +67,7 @@ def path_to_str(path: Path) -> str:
 
 class NativeFile(AbstractFile):
     f: t.Union[io.BufferedReader, io.BufferedRandom]
+    sector_size = BLOCK_SIZE
 
     def __init__(self, filename_or_path: t.Union[str, Path]):
         if isinstance(filename_or_path, Path):
@@ -98,11 +99,11 @@ class NativeFile(AbstractFile):
         if block_number < 0 or number_of_blocks < 0:
             raise OSError(errno.EIO, os.strerror(errno.EIO))
         with self._lock:
-            position = block_number * BLOCK_SIZE
+            position = block_number * self.sector_size
             self.f.seek(position)
-            return self.f.read(number_of_blocks * BLOCK_SIZE)
+            return self.f.read(number_of_blocks * self.sector_size)
             # TODO check
-            # buffer = self.f.read(number_of_blocks * BLOCK_SIZE)
+            # buffer = self.f.read(number_of_blocks * self.sector_size)
             # if not buffer:
             #     raise OSError(errno.EIO, os.strerror(errno.EIO))
             # return buffer
@@ -121,8 +122,8 @@ class NativeFile(AbstractFile):
         if self.readonly:
             raise OSError(errno.EROFS, os.strerror(errno.EROFS))
         with self._lock:
-            self.f.seek(block_number * BLOCK_SIZE)
-            self.f.write(buffer[0 : number_of_blocks * BLOCK_SIZE])
+            self.f.seek(block_number * self.sector_size)
+            self.f.write(buffer[0 : number_of_blocks * self.sector_size])
             self.f.flush()
 
     def truncate(self, size: t.Optional[int] = None) -> None:
@@ -144,7 +145,7 @@ class NativeFile(AbstractFile):
         """
         Get file block size in bytes
         """
-        return BLOCK_SIZE
+        return self.sector_size
 
     def close(self) -> None:
         """
@@ -278,7 +279,9 @@ class NativeFilesystem(AbstractFilesystem):
 
     @classmethod
     def mount(
-        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+        cls,
+        file_or_dev: t.Union["AbstractFile", "AbstractDevice"],
+        **kwargs: t.Union[bool, str],
     ) -> "NativeFilesystem":
         if not isinstance(file_or_dev, NativeFile):
             raise OSError(errno.EIO, "Not a native file")

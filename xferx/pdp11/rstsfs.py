@@ -194,7 +194,6 @@ def rsts_split_fullname(ppn: PPN, fullname: t.Optional[str], wildcard: bool = Tr
 
 
 class RTFSBlockCache(BlockCache):
-
     def __init__(self, fs: "RSTSFilesystem"):
         super().__init__(fs.dev)
         self.fs = fs
@@ -433,7 +432,6 @@ class UFDAccountEntry:
 
 
 class UFDNameEntry(AbstractDirectoryEntry):
-
     fs: "RSTSFilesystem"
     ppn: PPN = DEFAULT_PPN
     account_entry: UFDAccountEntry

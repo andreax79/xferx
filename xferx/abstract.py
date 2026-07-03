@@ -43,6 +43,7 @@ class AbstractFile(ABC):
     """Abstract base class for file operations"""
 
     current_position: int = 0
+    sector_size: int | None = None  # Sector size, in bytes
 
     def __enter__(self: AbstractFileT) -> AbstractFileT:
         return self
