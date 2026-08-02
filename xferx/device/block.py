@@ -73,7 +73,12 @@ class BlockDevice(AbstractDevice):
         """
         if block_number < 0 or number_of_blocks < 0:
             raise OSError(errno.EIO, os.strerror(errno.EIO))
-        self.f.write_block(buffer, block_number, number_of_blocks)
+        if self.sector_size == self.f.sector_size:
+            self.f.write_block(buffer[: number_of_blocks * self.sector_size], block_number, number_of_blocks)
+        else:
+            position = block_number * self.sector_size
+            self.f.seek(position)  # not thread safe...
+            self.f.write(buffer[: number_of_blocks * self.sector_size])
 
     def get_size(self) -> int:
         """
