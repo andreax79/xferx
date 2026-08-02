@@ -54,6 +54,7 @@ from .unix.unix4fs import UNIX4Filesystem
 from .unix.unix5fs import UNIX5Filesystem
 from .unix.unix6fs import UNIX6Filesystem
 from .unix.unix7fs import UNIX7Filesystem
+from .interdata.os32fs import OS32Filesystem
 
 __all__ = [
     "Volumes",
@@ -93,6 +94,7 @@ FILESYSTEMS: t.Dict[str, t.Type[AbstractFilesystem]] = {
     "dgdosmt": DGDOSMagTapeFilesystem,
     "dgdosdump": DGDOSDumpFilesystem,
     "mfs": MacintoshFilesystem,
+    "os32": OS32Filesystem,
 }
 
 
@@ -308,7 +310,10 @@ class Volumes(object):
         return None
 
     def initialize(
-        self, target: str, options: t.Dict[str, t.Union[str, bool]], cmd: str = "INITIALIZE"
+        self,
+        target: str,
+        options: t.Dict[str, t.Union[str, bool]],
+        cmd: str = "INITIALIZE",
     ) -> "AbstractFilesystem":
         """
         Initialize a filesystem
@@ -317,7 +322,11 @@ class Volumes(object):
         return fs.initialize(fs.dev, **options)
 
     def filter_entries_list(
-        self, pattern: str, include_all: bool = False, expand: bool = True, cmd: str = "KMON"
+        self,
+        pattern: str,
+        include_all: bool = False,
+        expand: bool = True,
+        cmd: str = "KMON",
     ) -> t.Iterator["AbstractDirectoryEntry"]:
         """
         Filter directory entries based on a pattern

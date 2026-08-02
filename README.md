@@ -34,6 +34,7 @@ XFERX is an utility for transferring files between various file systems.
 | Data General DOS/RDOS         | Yes               | Yes               | Yes               | No                | No                |
 | Data General DOS/RDOS MagTape | Yes               | No                | No                | Yes               | N/A               |
 | Data General DOS/RDOS Dump    | Yes               | No                | No                | No                | No                |
+| Interdata OS/32               | Yes               | Yes               | Yes               | Yes               | N/A               |
 
 Installation
 ------------
@@ -296,3 +297,9 @@ Data General DOS / RDOS
 
 * [Real Time Disk Operating System (RDOS) Reference Manual](https://bitsavers.org/pdf/dg/software/rdos/093-000075-08_RDOS_Reference_Manual_Mar79.pdf)
 * [Diskette Operating System Reference Manual](https://bitsavers.org/pdf/dg/software/093-000201-00_Diskette_Operating_System_Ref_Feb77.pdf)
+
+Interdata OS/32
+---------------
+
+* [OS/32 R8.02 Application Level Programmer](https://bitsavers.org/pdf/interdata/32bit/os32/1988_8.2/48-039F00R03_OS32_R08.2_Application_Level_Programmer_Reference_Manual_1988.pdf)
+* [OS/32 8.1 kit for the SimH Interdata 32 simulator](https://github.com/davygoat/simh-os32)
