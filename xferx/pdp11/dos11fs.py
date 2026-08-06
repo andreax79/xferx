@@ -1377,12 +1377,18 @@ class DOS11Filesystem(AbstractRXBlockFilesystem):
         mfd.write()
         return entry
 
+    def show_accounts(self, volume_id: str, options: t.Dict[str, bool]) -> None:
+        """
+        Listing of all UIC
+        """
+        sys.stdout.write(f"{volume_id}:\n\n")
+        for mfd in self.read_mfd_entries(uic=ANY_UIC):
+            sys.stdout.write(f"{mfd.uic.to_wide_str()}\n")
+
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         if options.get("uic"):
             # Listing of all UIC
-            sys.stdout.write(f"{volume_id}:\n\n")
-            for mfd in self.read_mfd_entries(uic=ANY_UIC):
-                sys.stdout.write(f"{mfd.uic.to_wide_str()}\n")
+            self.show_accounts(volume_id, options)
             return
         files = 0
         blocks = 0

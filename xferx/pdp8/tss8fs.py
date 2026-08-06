@@ -1596,24 +1596,30 @@ class TSS8Filesystem(AbstractFilesystem):
             raise OSError(errno.EINVAL, "Can only join PPN and filename")
         return f"{ppn}{paths[0]}"
 
+    def show_accounts(self, volume_id: str, options: t.Dict[str, bool]) -> None:
+        """
+        Listing of all UIC
+        """
+        if not options.get("brief"):
+            dt = datetime.now().strftime('%d-%b-%y  %H:%M:%S').upper()
+            sys.stdout.write(f"SYSTEM ACCOUNT    {dt}\n\n")
+            sys.stdout.write(" PASSWORD    CPU        DEV     DISK  QUOTA\n\n")
+        # Listing of all PPN
+        for mfd in self.read_mfd_entries():
+            if options.get("brief"):
+                sys.stdout.write(f"{mfd.ppn}\n")
+            else:
+                cpu_time = format_time(int(mfd.cpu_time * 6.4))
+                device_time = format_time(int(mfd.device_time * 51.2))
+                disk_usage = mfd.disk_usage()
+                sys.stdout.write(
+                    f"{mfd.ppn.to_word():>4o} {mfd.password:4}  {cpu_time}  {device_time} {disk_usage:>5}  {mfd.quota:>5}\n"
+                )
+
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         ppn, _ = tss8_split_fullname(fullname=pattern, wildcard=True, ppn=self.ppn)
         if options.get("uic") or ppn == MFD_PPN:
-            if not options.get("brief"):
-                dt = datetime.now().strftime('%d-%b-%y  %H:%M:%S').upper()
-                sys.stdout.write(f"SYSTEM ACCOUNT    {dt}\n\n")
-                sys.stdout.write(" PASSWORD    CPU        DEV     DISK  QUOTA\n\n")
-            # Listing of all PPN
-            for mfd in self.read_mfd_entries():
-                if options.get("brief"):
-                    sys.stdout.write(f"{mfd.ppn}\n")
-                else:
-                    cpu_time = format_time(int(mfd.cpu_time * 6.4))
-                    device_time = format_time(int(mfd.device_time * 51.2))
-                    disk_usage = mfd.disk_usage()
-                    sys.stdout.write(
-                        f"{mfd.ppn.to_word():>4o} {mfd.password:4}  {cpu_time}  {device_time} {disk_usage:>5}  {mfd.quota:>5}\n"
-                    )
+            self.show_accounts(volume_id, options)
         else:
             blocks = 0
             if not options.get("brief"):

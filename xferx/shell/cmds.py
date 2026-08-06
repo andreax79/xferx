@@ -612,6 +612,8 @@ SHOW            Displays software status
 	    is displayed by specifying one or more option names.
 
   OPTIONS
+   ACCOUNTS
+        Show the accounts of a volume
    FILESYSTEMS
         Show the supported filesystems
    TYPES
@@ -634,6 +636,20 @@ SHOW            Displays software status
     func(context, args)
 
 
+@cmds.register("SHOW A_CCOUNTS")
+def show_accounts(context: "ShellContext", args: t.List[str]) -> None:
+    """
+    SHOW ACCOUNTS     Show the accounts of a volume
+    """
+    # fmt: on
+    if len(args) == 1:
+        volume_id = context.volumes.get_default_volume()
+    else:
+        volume_id = args[1]
+    volume = context.volumes.get_volume(volume_id, cmd="SHOW ACCOUNTS")
+    volume.show_accounts(volume_id=volume_id, options={})
+
+
 @cmds.register("SHOW T_YPES")
 def show_type(context: "ShellContext", args: t.List[str]) -> None:
     """
@@ -641,7 +657,7 @@ def show_type(context: "ShellContext", args: t.List[str]) -> None:
     """
     # fmt: on
     if len(args) == 1:
-        volume_id = ask("Volume? ")
+        volume_id = context.volumes.get_default_volume()
     else:
         volume_id = args[1]
     sys.stdout.write("File Types\n")

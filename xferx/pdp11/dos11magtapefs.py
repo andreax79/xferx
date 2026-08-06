@@ -462,12 +462,18 @@ class DOS11MagTapeFilesystem(AbstractFilesystem):
         self.dev.tape_truncate()
         return entry
 
+    def show_accounts(self, volume_id: str, options: t.Dict[str, bool]) -> None:
+        """
+        Listing of all UIC
+        """
+        sys.stdout.write(f"{volume_id}:\n\n")
+        for uic in sorted(set([x.uic for x in self.read_file_headers(uic=ANY_UIC)])):
+            sys.stdout.write(f"{uic.to_wide_str()}\n")
+
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         if options.get("uic"):
             # Listing of all UIC
-            sys.stdout.write(f"{volume_id}:\n\n")
-            for uic in sorted(set([x.uic for x in self.read_file_headers(uic=ANY_UIC)])):
-                sys.stdout.write(f"{uic.to_wide_str()}\n")
+            self.show_accounts(volume_id, options)
             return
         i = 0
         files = 0

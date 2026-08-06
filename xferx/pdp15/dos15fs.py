@@ -789,6 +789,18 @@ class DOS15Filesystem(AbstractFilesystem):
     def isdir(self, fullname: str) -> bool:
         return False
 
+    def show_accounts(self, volume_id: str, options: t.Dict[str, bool]) -> None:
+        """
+        Listing of all UIC
+        """
+        dt = date.today().strftime('%y-%b-%d').upper()
+        sys.stdout.write("UIC\n\n")
+        sys.stdout.write(f"     {dt}\n")
+        sys.stdout.write(" MFD DIRECTORY LISTING)\n")
+        mfd = MasterFileDirectory.read(self)
+        for ufd in mfd.entries_list:
+            sys.stdout.write(f"{ufd.uic} {ufd}\n")
+
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         """
             10-AUG-71
@@ -807,13 +819,7 @@ class DOS15Filesystem(AbstractFilesystem):
         """
         if options.get("uic"):
             # Listing of all UIC
-            dt = date.today().strftime('%y-%b-%d').upper()
-            sys.stdout.write("UIC\n\n")
-            sys.stdout.write(f"     {dt}\n")
-            sys.stdout.write(" MFD DIRECTORY LISTING)\n")
-            mfd = MasterFileDirectory.read(self)
-            for ufd in mfd.entries_list:
-                sys.stdout.write(f"{ufd.uic} {ufd}\n")
+            self.show_accounts(volume_id, options)
             return
 
         uic, pattern = dos15_split_fullname(fullname=pattern, wildcard=True, uic=self.uic)

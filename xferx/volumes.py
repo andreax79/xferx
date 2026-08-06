@@ -219,6 +219,12 @@ class Volumes(object):
             self.get_volume(volume_id, cmd=cmd)
             self.defdev = volume_id
 
+    def get_default_volume(self) -> str:
+        """
+        Get the default volume
+        """
+        return self.defdev
+
     def assign(self, volume_id: str, logical: str, verbose: bool = False, cmd: str = "KMON") -> None:
         """
         Associate a logical device name with a device

@@ -417,6 +417,12 @@ class AbstractFilesystem:
         """
         return []
 
+    def show_accounts(self, volume_id: str, options: t.Dict[str, bool]) -> None:
+        """
+        Listing of all the accounts on the volume
+        """
+        pass
+
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.__dict__})"
 
