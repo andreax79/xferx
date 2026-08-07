@@ -579,8 +579,8 @@ class OS32DirectoryEntry(AbstractDirectoryEntry):
             self.num_of_records,
             self.raw_last_assigned_date,
         ) = struct.unpack_from(DIR_ENTRY_FORMAT, buffer, position)
-        self.filename = filename.decode("utf-8", errors='ignore').strip()
-        self.extension = extension.decode("utf-8", errors='ignore').strip()
+        self.filename = filename.decode("utf-8", errors='ignore').strip("\0 ")
+        self.extension = extension.decode("utf-8", errors='ignore').strip("\0 ")
         return self
 
     @classmethod
