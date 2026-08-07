@@ -55,6 +55,7 @@ from .unix.unix5fs import UNIX5Filesystem
 from .unix.unix6fs import UNIX6Filesystem
 from .unix.unix7fs import UNIX7Filesystem
 from .interdata.os32fs import OS32Filesystem
+from .interdata.os32tapefs import OS32TapeFilesystem
 
 __all__ = [
     "Volumes",
@@ -95,6 +96,7 @@ FILESYSTEMS: t.Dict[str, t.Type[AbstractFilesystem]] = {
     "dgdosdump": DGDOSDumpFilesystem,
     "mfs": MacintoshFilesystem,
     "os32": OS32Filesystem,
+    "os32mt": OS32TapeFilesystem,
 }
 
 
