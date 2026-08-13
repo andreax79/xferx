@@ -41,3 +41,7 @@ mfs.dsk:
 
 ciao.apple2:
 	cl65 -v -t apple2 -u __EXEHDR__ --start-addr 8192 ciao.apple2.c -o ciao.apple2
+
+.PHONY: os32mt.tap
+os32mt.tap:
+	../../xferx.py -vc "@os32mt.com"
