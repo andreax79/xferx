@@ -202,6 +202,8 @@ def ascii_to_records(data: t.Union[bytes, bytearray], record_length: int) -> t.T
         raise ValueError(f"Invalid record length: {record_length}")
     result = bytearray()
     num_of_records = 0
+    if data.endswith(b"\x0a"):
+        data = data[:-1]
     for line in data.split(b"\x0a"):
         line = line.rstrip(b"\x0d")
         if len(line) > record_length:
@@ -256,6 +258,13 @@ def os32_split_fullname(
         if fullname:
             fullname = os32_canonical_filename(fullname, wildcard=wildcard)
     return account, fullname
+
+
+def account_match(entry_account: int, account: int) -> bool:
+    """
+    Check if the account matches the entry account
+    """
+    return account == ANY_ACCOUNT or entry_account == account
 
 
 class OS32Bitmap:
@@ -852,7 +861,7 @@ class OS32DirectoryEntry(AbstractDirectoryEntry):
         t = self.raw_creation_date >> 16
         buf = io.StringIO()
         buf.write(f"Name:                    {self.fullname}\n")
-        buf.write(f"Type:                    {self.file_type}\n")
+        buf.write(f"Type:                    {os32_file_type_description(self.raw_file_type)}\n")
         buf.write(f"Account:                 {self.account}\n")
         buf.write(f"Write/read keys:         {self.write_key}/{self.read_key}\n")
         buf.write(f"Record length:           {self.record_length}\n")
@@ -1273,6 +1282,7 @@ class OS32Filesystem(AbstractBlockFilesystem):
     fs_description = "Interdata OS/32 Filesystem"
     fs_platforms = ["interdata"]
     fs_entry_metadata = [
+        "account",
         "creation_date",
         "last_mod_date",
         "file_type",
@@ -1379,7 +1389,7 @@ class OS32Filesystem(AbstractBlockFilesystem):
             if (
                 entry.is_permanent
                 and filename_match(entry.basename, filename_pattern, wildcard)
-                and (entry.account == account or account == ANY_ACCOUNT)
+                and account_match(entry.account, account)
             ):
                 yield entry
 

@@ -206,12 +206,14 @@ DELETE          Removes files from a volume
         args = split_arguments(line)
     for arg in args:
         match = False
-        for x in context.volumes.filter_entries_list(
-            pattern=arg, expand=False, cmd="DELETE"
+        for x in list(
+            context.volumes.filter_entries_list(pattern=arg, expand=False, cmd="DELETE")
         ):  # don't expand directories
             match = True
-            if not x.delete():
-                sys.stderr.write("?DELETE-F-Error deleting %s\n" % x.fullname)
+            if x.delete():
+                sys.stderr.write(f"?DELETE-I-{x.fullname} deleted\n")
+            else:
+                sys.stderr.write(f"?DELETE-F-Error deleting {x.fullname}\n")
     if not match:
         raise CommandError("?DELETE-F-No files")
 

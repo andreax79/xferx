@@ -35,7 +35,7 @@ XFERX is an utility for transferring files between various file systems.
 | Data General DOS/RDOS MagTape | Yes               | No                | No                | Yes               | N/A               |
 | Data General DOS/RDOS Dump    | Yes               | No                | No                | No                | No                |
 | Interdata OS/32               | Yes               | Yes               | Yes               | Yes               | N/A               |
-| Interdata OS/32 Backup Tape   | Yes               | Yes               | Yes               | No                | N/A               |
+| Interdata OS/32 Backup Tape   | Yes               | Yes               | Yes               | Yes               | N/A               |
 
 Installation
 ------------

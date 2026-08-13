@@ -134,6 +134,13 @@ class NativeFile(AbstractFile):
         self.f.truncate(size)
         if size is not None and self.current_position > size:
             self.current_position = size
+        self.f.flush()
+
+    def flush(self) -> None:
+        """
+        Flush the file's internal buffer to disk
+        """
+        self.f.flush()
 
     def get_size(self) -> int:
         """

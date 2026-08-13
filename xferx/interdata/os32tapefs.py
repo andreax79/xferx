@@ -18,6 +18,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+import io
 import errno
 import os
 import struct
@@ -30,13 +31,15 @@ from ..commons import ASCII, READ_FILE_FULL, filename_match, hex_dump
 from ..device.abstract import AbstractDevice
 from ..device.tape import Tape
 from .os32fs import (
+    account_match,
     ascii_to_records,
-    records_to_ascii,
-    os32_split_fullname,
-    os32_get_file_type_id,
     date_to_os32,
-    os32_to_date,
     format_time,
+    os32_file_type_description,
+    os32_get_file_type_id,
+    os32_split_fullname,
+    os32_to_date,
+    records_to_ascii,
     ANY_ACCOUNT,
     FILE_TYPES,
     CO_FILE_TYPE,
@@ -46,6 +49,9 @@ from .os32fs import (
     LR_FILE_TYPE,
     IT_FILE_TYPE,
     OS32_BLOCK_SIZE,
+    DEFAULT_RECORD_LENGTH,
+    DEFAULT_BLOCK_SIZE,
+    DEFAULT_INDEX_BLOCK_SIZE,
 )
 
 __all__ = [
@@ -58,10 +64,14 @@ VOLUME_HEADER_SIZE = 80
 FILE_INFORMATION_BLOCK_FORMAT = ">HH BBH HH 8s 3sb HH I I I"
 FILE_INFORMATION_BLOCK_SIZE = 80
 DEFAULT_BUFFER_SIZE = 12288
+DEFAULT_VOLUME_NAME = "OS32"
 
 
 def os32_header_to_date(n: int) -> t.Optional[datetime]:
-    # The date format is different from the one used in the File Information Block
+    """
+    Convert an OS/32 header date format (used in the volume header) to a datetime
+    The header date format is different from the one used in the File Information Block
+    """
     try:
         t = n >> 16
         year = 1900 + (t >> 9)
@@ -75,6 +85,22 @@ def os32_header_to_date(n: int) -> t.Optional[datetime]:
         return datetime(year, month, day, h, m)
     except Exception:
         return None
+
+
+def date_to_os32_header(dt: t.Optional[datetime]) -> int:
+    """
+    Convert a datetime object to the OS/32 header date format (used in the volume header).
+    """
+    if dt is None:
+        return 0
+    year = dt.year - 1900
+    if year >= 100:
+        year -= 100
+    month = dt.month
+    day = dt.day
+    h = dt.hour
+    m = dt.minute
+    return ((year << 9) | (month << 5) | day) << 16 | (h * 60 + m)
 
 
 class OS32TapeFile(AbstractFile):
@@ -154,7 +180,7 @@ class FileInformationBlock(AbstractDirectoryEntry):
         +-------------------------------------+------------------+------------------+
      4  |    Write key     |    Read key      |            Record length            |
         +-------------------------------------+------------------+------------------+
-     8  |                 ???                 |         Number of records ???       |
+     8  |                 ???                 |     0 (CO) / Number of records      |
         +---------------------------------------------------------------------------+
     12  |                                Filename                                   |
         |                                                                           |
@@ -178,11 +204,12 @@ class FileInformationBlock(AbstractDirectoryEntry):
 
     fs: "OS32TapeFilesystem"
     attributes: int = 0  # File attributes
-    _u1: int = 0  # Unknown 1
+    _u1: int = 0  # Unknown 1 ( 4 )
     write_key: int = 0
     read_key: int = 0
     record_length: int = 0  # Record length, in bytes
-    _u2: int = 0  # Unknown 2
+    _u2: int = 0  # Unknown 2  ( 0 )
+    _u3: int = 0  # Unknown 3  ( 0 for contiguous files, number of records for indexed files )
     num_of_records: int = 0  # Number of disk records
     filename: str = ""  # File name, up to 8 characters
     extension: str = ""  # File extension, up to 3 characters
@@ -214,7 +241,7 @@ class FileInformationBlock(AbstractDirectoryEntry):
             self.read_key,
             self.record_length,
             self._u2,
-            _,  # self.num_of_records,
+            self._u3,
             filename,
             extension,
             self.account,
@@ -400,13 +427,19 @@ class FileInformationBlock(AbstractDirectoryEntry):
         """
         Get the length in 256 bytes blocks
         """
-        return self.num_of_records
+        if self.is_contiguous:
+            return self.num_of_records
+        else:
+            return self.num_of_records * self.record_length // OS32_BLOCK_SIZE
 
     def get_size(self, fork: t.Optional[str] = None) -> int:
         """
         Get file size in bytes
         """
-        return self.get_length() * self.get_block_size()
+        if self.is_contiguous:
+            return self.num_of_records * OS32_BLOCK_SIZE
+        else:
+            return self.num_of_records * self.record_length
 
     def get_block_size(self) -> int:
         """
@@ -418,7 +451,11 @@ class FileInformationBlock(AbstractDirectoryEntry):
         """
         Delete the file by rewriting the entire tape without this entry.
         """
-        entries = [(entry, data) for entry, data in self.fs.read_files_data() if entry.tape_pos != self.tape_pos]
+        entries = [
+            (entry, data)
+            for entry, data in self.fs.read_files_data()
+            if not (filename_match(entry.basename, self.basename, False) and account_match(entry.account, self.account))
+        ]
         self.fs._rewrite_tape(entries)
         return True
 
@@ -443,6 +480,28 @@ class FileInformationBlock(AbstractDirectoryEntry):
             return records_to_ascii(data, self.record_length, self.num_of_records)
         else:
             return data
+
+    def examine(self) -> str:
+        t = self.raw_creation_date >> 16
+        buf = io.StringIO()
+        buf.write(f"Name:                    {self.fullname}\n")
+        buf.write(f"Type:                    {os32_file_type_description(self.raw_file_type)}\n")
+        buf.write(f"Account:                 {self.account}\n")
+        buf.write(f"Write/read keys:         {self.write_key}/{self.read_key}\n")
+        buf.write(f"Record length:           {self.record_length}\n")
+        buf.write(f"Creation date:           {self.creation_date}\n")
+        buf.write(f"Last mod date:           {self.last_mod_date}\n")
+        buf.write(f"Attributes:              ${self.attributes:x}\n")
+        if not self.is_contiguous:
+            buf.write(f"Block size:              {self.block_size} sectors\n")
+            buf.write(f"Index block size:        {self.index_block_size} sectors\n")
+        if self.is_indexed or self.is_nonbuffered_indexed:
+            buf.write(f"Number of records:       {self.num_of_records}\n")
+        else:
+            buf.write(f"Number of sectors:       {self.num_of_records}\n")
+        buf.write(f"Size:                    {self.get_size()} bytes\n")
+        buf.write(f"Unknown:                 {self._u1} {self._u2} {self._u3}\n")
+        return buf.getvalue()
 
     def __str__(self) -> str:
         creation_date = format_time(self.creation_date)
@@ -500,7 +559,8 @@ class VolumeHeader:
     _u2: int = 0  # Unknown 2
     _u3: int = 0  # Unknown 3
     _u4: int = 0  # Unknown 4
-    rev: str = ""  # Backup revision and update number
+    revision: int = 0  # Backup revision number
+    update: int = 0  # Backup update number
     creation_date: t.Optional[datetime] = None  # Creation date
     buffer_size: int = 0  # Size of the buffer used to transfer data
     select_vol: str = ""  # Select volume name
@@ -523,8 +583,8 @@ class VolumeHeader:
             self._u1,
             self._u2,
             self.buffer_size,
-            rev_major,
-            rev_minor,
+            self.revision,
+            self.update,
             self._u3,
             creation_date,
             self._u4,
@@ -534,7 +594,6 @@ class VolumeHeader:
             self.select_account,
         ) = struct.unpack_from(VOLUME_HEADER_FORMAT, buffer, 0)
         self.name = name.decode("ascii", errors="ignore").rstrip("\0 ")
-        self.rev = f"{rev_major:02}-{rev_minor:02}"
         self.select_vol = select_vol.decode("ascii", errors="ignore").rstrip("\0 ")
         self.select_filename = select_filename.decode("ascii", errors="ignore").rstrip("\0 ")
         self.select_extension = select_extension.decode("ascii", errors="ignore").rstrip("\0 ")
@@ -547,11 +606,13 @@ class VolumeHeader:
         """
         Create a new volume header
         """
+        self = VolumeHeader()
         self.name = name.upper()[:4]
         self._u1 = 0x10000
         self._u2 = 0
         self.buffer_size = fs.buffer_size or DEFAULT_BUFFER_SIZE
-        self.rev = "09-02"
+        self.revision = 9
+        self.update = 2
         self._u3 = 0x2000
         self.creation_date = datetime.now()
         self._u4 = 0
@@ -560,6 +621,38 @@ class VolumeHeader:
         self.select_extension = ""
         self.select_account = 0
         return self
+
+    def to_bytes(self) -> bytes:
+        """
+        Serialize the volume header to a byte buffer (80 bytes)
+        """
+        buffer = bytearray(VOLUME_HEADER_SIZE)
+        struct.pack_into(
+            VOLUME_HEADER_FORMAT,
+            buffer,
+            0,
+            self.name.encode("ascii").ljust(4, b" ")[:4],
+            self._u1,
+            self._u2,
+            self.buffer_size,
+            self.revision,
+            self.update,
+            self._u3,
+            date_to_os32_header(self.creation_date),
+            self._u4,
+            self.select_vol.encode("ascii").ljust(4, b" ")[:4],
+            self.select_filename.encode("ascii").ljust(8, b" ")[:8],
+            self.select_extension.encode("ascii").ljust(3, b" ")[:3],
+            self.select_account,
+        )
+        return bytes(buffer)
+
+    @property
+    def rev(self) -> str:
+        """
+        Backup revision
+        """
+        return f"{self.revision:02}-{self.update:02}"
 
     def __str__(self) -> str:
         creation_date = format_time(self.creation_date)
@@ -572,7 +665,7 @@ class VolumeHeader:
         return (
             f"Volume: {self.name:>4}:   "
             f"Date Created: {creation_date}   "
-            f"Backup Rev.: {self.rev}    "
+            f"Backup Rev.: {self.revision:02}-{self.update:02}    "
             f"Size: {self.buffer_size / 1024:>6.2f}K\n"
             f"Unknown: ${self._u1:08X} ${self._u2:04X} ${self._u3:04X} ${self._u4:08X}"
             f"{select}"
@@ -609,6 +702,7 @@ class OS32TapeFilesystem(AbstractFilesystem):
     fs_description = "Interdata OS/32 Backup Tape Format"
     fs_platforms = ["interdata"]
     fs_entry_metadata = [
+        "account",
         "creation_date",
         "last_mod_date",
         "file_type",
@@ -644,24 +738,6 @@ class OS32TapeFilesystem(AbstractFilesystem):
         self.buffer_size = header.buffer_size
         return self
 
-    def read_fibs(self, account: int = ANY_ACCOUNT) -> t.Iterator["FileInformationBlock"]:
-        """
-        Read File Information Blocks (FIBs) from the tape
-        """
-        self.dev.tape_rewind()
-        volume_header = self.dev.tape_read_forward()
-        assert len(volume_header) == VOLUME_HEADER_SIZE, "Invalid volume header size"
-        try:
-            while True:
-                tape_pos = self.dev.tape_pos
-                header, _ = self.dev.tape_read_header()
-                if header and len(header) == FILE_INFORMATION_BLOCK_SIZE:
-                    entry = FileInformationBlock.read(self, header, tape_pos)
-                    if account == ANY_ACCOUNT or entry.account == account:
-                        yield entry
-        except EOFError:
-            pass
-
     def filter_entries_list(
         self,
         pattern: t.Optional[str],
@@ -673,14 +749,26 @@ class OS32TapeFilesystem(AbstractFilesystem):
         if account is None:
             account = ANY_ACCOUNT
         account, filename_pattern = os32_split_fullname(fullname=pattern, wildcard=wildcard, account=account)
-        for entry in self.read_fibs(account=account):
-            if filename_match(entry.basename, filename_pattern, wildcard):
+        for entry in self.entries_list:
+            if filename_match(entry.basename, filename_pattern, wildcard) and account_match(entry.account, account):
                 yield entry
 
     @property
     def entries_list(self) -> t.Iterator["FileInformationBlock"]:
-        for entry in self.read_fibs(account=ANY_ACCOUNT):
-            yield entry
+        """
+        Read File Information Blocks (FIBs) from the tape
+        """
+        self.dev.tape_rewind()
+        volume_header = self.dev.tape_read_forward()
+        assert len(volume_header) == VOLUME_HEADER_SIZE, "Invalid volume header size"
+        try:
+            while True:
+                tape_pos = self.dev.tape_pos
+                header, _ = self.dev.tape_read_header()
+                if header and len(header) == FILE_INFORMATION_BLOCK_SIZE:
+                    yield FileInformationBlock.read(self, header, tape_pos)
+        except EOFError:
+            pass
 
     def get_file_entry(self, fullname: str) -> "FileInformationBlock":
         """
@@ -718,7 +806,7 @@ class OS32TapeFilesystem(AbstractFilesystem):
             sys.stdout.write(
                 f"           Volume: {volume_header.name:>4}:   "
                 f"Date Created {creation_date}   "
-                f"BACKUP Rev.: {volume_header.rev}\n\n"
+                f"BACKUP Rev.: {volume_header.revision:02}-{volume_header.update:02}\n\n"
             )
             if volume_header.select_vol:
                 select = f"{volume_header.select_vol}:{volume_header.select_filename}.{volume_header.select_extension}/{volume_header.select_account}"
@@ -757,7 +845,9 @@ class OS32TapeFilesystem(AbstractFilesystem):
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
         if arg:
-            self.dump(arg)
+            # Display the file information
+            entry = self.get_file_entry(arg)  # type: ignore
+            sys.stdout.write(entry.examine())
             return
         # Volume header
         sys.stdout.write(f"Volume Header:\n\n")
@@ -837,9 +927,16 @@ class OS32TapeFilesystem(AbstractFilesystem):
         file_mode: t.Optional[str] = None,
     ) -> None:
         """
-        Write content to a file, rewriting the entire tape.
+        Write content to a file
         """
-        self.create_file(fullname=fullname, size=len(content), metadata=metadata or {}, content=content)
+        metadata = metadata or {}
+        file_type = os32_get_file_type_id(metadata.get("file_type"))  # type: ignore
+        if file_type != CO_FILE_TYPE:
+            record_length: int = metadata.get("record_length") or DEFAULT_RECORD_LENGTH  # type: ignore
+            if file_mode == ASCII and record_length > 0:
+                content, num_of_records = ascii_to_records(content, record_length=record_length)
+                metadata["num_of_records"] = num_of_records
+        self.create_file(fullname=fullname, size=len(content), metadata=metadata, content=content)
 
     def create_file(
         self,
@@ -852,14 +949,21 @@ class OS32TapeFilesystem(AbstractFilesystem):
         Create (or replace) a file on the tape by rewriting the entire tape.
         """
         metadata = metadata or {}
+        account: int = metadata.get("account") or 0  # type: ignore
         file_type = os32_get_file_type_id(metadata.get("file_type"))  # type: ignore
         creation_date: t.Optional[datetime] = metadata.get("creation_date")  # type: ignore
-        num_of_records: int = metadata.get("num_of_records") or 0  # type: ignore
-        record_length: int = metadata.get("record_length") or 0  # type: ignore
-        block_size: int = metadata.get("block_size") or 0  # type: ignore
-        index_block_size: int = metadata.get("index_block_size") or 0  # type: ignore
+        if file_type == CO_FILE_TYPE:
+            num_of_records: int = 0
+            record_length: int = OS32_BLOCK_SIZE
+            block_size: int = 0
+            index_block_size: int = 0
+        else:
+            num_of_records = metadata.get("num_of_records") or 0  # type: ignore
+            record_length = metadata.get("record_length") or DEFAULT_RECORD_LENGTH  # type: ignore
+            block_size = metadata.get("block_size") or DEFAULT_BLOCK_SIZE  # type: ignore
+            index_block_size = metadata.get("index_block_size") or DEFAULT_INDEX_BLOCK_SIZE  # type: ignore
         basename: str
-        account, basename = os32_split_fullname(fullname=fullname, wildcard=False, account=ANY_ACCOUNT)  # type: ignore
+        account, basename = os32_split_fullname(fullname=fullname, wildcard=False, account=account)  # type: ignore
         if "." in basename:
             filename, extension = basename.split(".", 1)
         else:
@@ -868,7 +972,7 @@ class OS32TapeFilesystem(AbstractFilesystem):
         entries = [
             (entry, data)
             for entry, data in self.read_files_data()
-            if not (entry.basename.upper() == basename.upper() and (account == ANY_ACCOUNT or entry.account == account))
+            if not (filename_match(entry.basename, basename, False) and account_match(entry.account, account))
         ]
         # Build the new File Information Block
         number_of_blocks = max(1, (size + self.buffer_size - 1) // self.buffer_size)
@@ -876,7 +980,7 @@ class OS32TapeFilesystem(AbstractFilesystem):
             fs=self,
             filename=filename,
             extension=extension,
-            account=account if account != ANY_ACCOUNT else 0,
+            account=account,
             number_of_blocks=number_of_blocks,
             file_type=file_type,
             record_length=record_length,
@@ -891,6 +995,28 @@ class OS32TapeFilesystem(AbstractFilesystem):
         # Rewrite the tape
         self._rewrite_tape(entries)
         return new_entry
+
+    @classmethod
+    def initialize(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "OS32TapeFilesystem":
+        """
+        Initialize the filesystem
+        """
+        try:
+            volume_name = kwargs["name"].strip().upper() or DEFAULT_VOLUME_NAME  # type: ignore
+        except Exception:
+            volume_name = DEFAULT_VOLUME_NAME
+        self = cls(file_or_dev)
+        self.dev.tape_rewind()
+        self.dev.tape_truncate()
+        # Write the header
+        header = VolumeHeader.create(self, volume_name)
+        self.dev.tape_write_forward(header.to_bytes())
+        # Write EOV (double tape mark)
+        self.dev.tape_write_mark()
+        self.dev.tape_truncate()
+        return self
 
     def isdir(self, fullname: str) -> bool:
         """
