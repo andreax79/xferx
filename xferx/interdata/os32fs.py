@@ -217,11 +217,10 @@ def os32_canonical_filename(fullname: t.Optional[str], wildcard: bool = False) -
     """
     Generate the canonical OS/32 name
 
-    filename[.ext][/account]
+    filename[.ext]
 
-    filename - up to 8 characters alphanumeric
+    filename - up to 8 characters alphanumeric, the first character must be alphabetic
     ext      - up to 3 characters alphanumeric
-    account  - decimal number from 0 to 65535
     """
     fullname = (fullname or "").upper()
     try:
@@ -231,7 +230,14 @@ def os32_canonical_filename(fullname: t.Optional[str], wildcard: bool = False) -
         extension = "*" if wildcard else ""
 
     filename = filename[:FILE_NAME_LENGTH]
+    # The first character must be alphabetic, the remaining alphanumeric
+    if not filename or not (filename[0].isalpha() or (wildcard and filename[0] == '*')):
+        raise ValueError(f"Invalid filename: {filename} (First character must be alphabetic)")
+    if not all(c.isalnum() or (wildcard and c == '*') for c in filename):
+        raise ValueError(f"Invalid filename: {filename} (Only alphanumeric characters are allowed)")
     extension = extension[:FILE_EXTENSION_LENGTH]
+    if not all(c.isalnum() or (wildcard and c == '*') for c in extension):
+        raise ValueError(f"Invalid extension: {extension} (Only alphanumeric characters are allowed)")
     if not extension:
         return filename
     else:
@@ -606,6 +612,7 @@ class OS32DirectoryEntry(AbstractDirectoryEntry):
         block_size: int = 1,
         index_block_size: int = 1,
         num_of_records: int = 0,
+        keys: int = 0,
     ) -> "OS32DirectoryEntry":
         """
         Create a new directory entry
@@ -616,8 +623,8 @@ class OS32DirectoryEntry(AbstractDirectoryEntry):
         self.filename = filename
         self.extension = extension
         self.account = account
-        self.write_key = 0
-        self.read_key = 0
+        self.write_key = (keys >> 8) & 0xFF
+        self.read_key = keys & 0xFF
         self.record_length = record_length
         self.raw_creation_date = date_to_os32(creation_date or datetime.now())
         self.raw_last_mod_date = self.raw_creation_date
@@ -748,6 +755,13 @@ class OS32DirectoryEntry(AbstractDirectoryEntry):
             return FILE_TYPES[self.raw_file_type][0]
         except KeyError:
             return "??"
+
+    @property
+    def keys(self) -> int:
+        """
+        Read/write keys
+        """
+        return (self.write_key & 0xFF) << 8 | (self.read_key & 0xFF)
 
     @property
     def fullname(self) -> str:
@@ -1290,6 +1304,7 @@ class OS32Filesystem(AbstractBlockFilesystem):
         "block_size",
         "record_length",
         "num_of_records",
+        "keys",
     ]
 
     account: int = 0  # Account number
@@ -1459,6 +1474,7 @@ class OS32Filesystem(AbstractBlockFilesystem):
         metadata = metadata or {}
         file_type = os32_get_file_type_id(metadata.get("file_type"))  # type: ignore
         creation_date: t.Optional[date] = metadata.get("creation_date")  # type: ignore
+        keys: int = metadata.get("keys") or 0  # type: ignore
         num_of_records: int = metadata.get("num_of_records") or 0  # type: ignore
         fullname = os32_canonical_filename(fullname)
         # Delete the file if it already exists
@@ -1533,6 +1549,7 @@ class OS32Filesystem(AbstractBlockFilesystem):
             block_size=block_size,
             index_block_size=index_block_size,
             num_of_records=num_of_records,
+            keys=keys,
         )
         directory_segment.entries_list[index] = entry
         directory_segment.write()
