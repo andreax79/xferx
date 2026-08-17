@@ -14,9 +14,9 @@ def test_os32mt_read():
 
     shell.onecmd("dir t:", batch=True)
     shell.onecmd("dir /uic t:", batch=True)
-    shell.onecmd("type t:1.txt", batch=True)
+    shell.onecmd("type t:d1.txt", batch=True)
 
-    x = fs.read_text("1000.txt")
+    x = fs.read_text("d1000.txt")
     assert len(x) == 44000
     for i in range(0, 1000):
         assert f"{i:5d} ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890" in x
@@ -33,19 +33,20 @@ def test_os32mt_write():
     fs = shell.volumes.get_volume('OU')
     assert isinstance(fs, OS32TapeFilesystem)
 
-    d = fs.get_file_entry("500.TXT")
-    assert d is not None
+    d = fs.get_file_entry("d500.TXT")
+    for k in fs.fs_entry_metadata:
+        assert d.metadata[k] is not None
 
     # Delete a file
     d.delete()
     with pytest.raises(FileNotFoundError):
-        fs.get_file_entry("500.TXT")
+        fs.get_file_entry("d500.TXT")
 
     # Create a file
-    shell.onecmd("copy /ascii in:10.TXT ou:10NEW.TXT", batch=True)
-    x1 = fs.read_text("10.txt")
+    shell.onecmd("copy /ascii in:D10.TXT ou:D10NEW.TXT", batch=True)
+    x1 = fs.read_text("D10.txt")
     assert len(x1) == 440
-    x2 = fs.read_text("10NEW.txt")
+    x2 = fs.read_text("D10NEW.txt")
     assert len(x2) == 440
     for i in range(0, 10):
         assert f"{i:5d} ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890" in x2
@@ -66,7 +67,7 @@ def test_os32mt_init():
     l = list(fs.entries_list)
     assert len(l) == 11
 
-    x = fs.read_text("1000.txt")
+    x = fs.read_text("d1000.txt")
     assert len(x) == 44000
     for i in range(0, 1000):
         assert f"{i:5d} ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567890" in x
@@ -83,4 +84,4 @@ def test_os32mt_init():
     # Test init mounted volume
     shell.onecmd("init ou:", batch=True)
     with pytest.raises(Exception):
-        fs.read_bytes("1000.txt")
+        fs.read_bytes("d1000.txt")
