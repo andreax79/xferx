@@ -36,7 +36,7 @@ from ..commons import (
     swap_words,
 )
 from ..device.abstract import AbstractDevice
-from ..uic import ANY_GROUP, ANY_USER, DEFAULT_UIC, UIC
+from ..uic import DEFAULT_UIC, UIC
 from .abstract import AbstractRXBlockFilesystem
 from .dos11fs import dos11_split_fullname
 from .rad50 import asc2rad, rad2asc, rad50_word_to_asc
@@ -653,8 +653,8 @@ class Files11Filesystem(AbstractRXBlockFilesystem):
             yield from self.read_directory(uic_dir_entry.fnum, uic=uic)
         else:
             # Filter directories
-            g = f"{uic.group:03o}" if uic.group != ANY_GROUP else None
-            u = f"{uic.user:03o}" if uic.user != ANY_USER else None
+            g = f"{uic.group:03o}" if uic.group != UIC.ANY_GROUP else None
+            u = f"{uic.user:03o}" if uic.user != UIC.ANY_USER else None
             uic_dir_entry = None
             for entry in self.read_directory(MFD_DIR, MFD_UIC):
                 if (

@@ -29,7 +29,7 @@ from ..abstract import AbstractDirectoryEntry, AbstractFile
 from ..cache import BlockCache
 from ..commons import BLOCK_SIZE, READ_FILE_FULL, dump_struct, filename_match
 from ..device.abstract import AbstractDevice
-from ..uic import ANY_GROUP, ANY_USER, UIC
+from ..uic import UIC
 from .abstract import AbstractRXBlockFilesystem
 from .rad50 import asc2rad, asc_to_rad50_word, rad2asc, rad50_word_to_asc
 
@@ -96,40 +96,9 @@ class PPN(UIC):
     the value on the right represents the programmer's number within the project.
     """
 
-    @classmethod
-    def from_str(cls, code_str: str, strict: bool = False) -> "PPN":
-        code_str, tmp = code_str.split("[")[1].split("]", 1)
-        if strict and tmp:
-            raise ValueError("Invalid PPN")
-        project_str, user_str = code_str.split(",")
-        if project_str == "*":
-            project = ANY_GROUP
-        else:
-            project = int(project_str) & 0xFF
-        if user_str == "*":
-            user = ANY_USER
-        else:
-            user = int(user_str) & 0xFF
-        return cls(project, user)
-
-    @classmethod
-    def from_word(cls, code_int: int) -> "PPN":
-        project = code_int >> 8
-        user = code_int & 0xFF
-        return cls(project, user)
-
-    def to_wide_str(self) -> str:
-        g = f"{self.group}" if self.group != ANY_GROUP else "*"
-        u = f"{self.user}" if self.user != ANY_USER else "*"
-        return f"[{g:>3},{u:<3}]"
-
-    def __str__(self) -> str:
-        g = f"{self.group}" if self.group != ANY_GROUP else "*"
-        u = f"{self.user}" if self.user != ANY_USER else "*"
-        return f"[{g},{u}]"
-
-    def __repr__(self) -> str:
-        return str(self)
+    GROUP_BITS = 8
+    USER_BITS = 8
+    IS_OCTAL = False  # Indicates that the PPN is not in octal format
 
 
 DEFAULT_PPN = PPN.from_str("[1,1]")
@@ -734,12 +703,12 @@ class GFD:
         ppn: t.Optional[PPN] = None,
         cache: t.Optional[RTFSBlockCache] = None,
     ) -> t.Iterator["UFDNameEntry"]:
-        if ppn is not None and ppn.group != ANY_GROUP and ppn.group != self.group:
+        if ppn is not None and ppn.group != PPN.ANY_GROUP and ppn.group != self.group:
             return
         if cache is None:
             cache = self.fs.new_cache()
         for user, ufd_pointer in enumerate(self.ufd_pointer_map):
-            if ufd_pointer != 0 and (ppn is None or ppn.user == ANY_USER or ppn.user == user):
+            if ufd_pointer != 0 and (ppn is None or ppn.user == PPN.ANY_USER or ppn.user == user):
                 ufd_ppn = PPN(group=self.group, user=user)
                 buffer = cache.read_block(self.fs.dcn_to_lbn(ufd_pointer))
                 ufd_label = UFDLabelEntry.read(self.fs, buffer)
@@ -781,7 +750,7 @@ class MFD:
         if cache is None:
             cache = self.fs.new_cache()
         for group, dcn in enumerate(self.gfd_pointer_map):
-            if dcn != 0 and (ppn is None or ppn.group == ANY_GROUP or ppn.group == group):
+            if dcn != 0 and (ppn is None or ppn.group == PPN.ANY_GROUP or ppn.group == group):
                 yield GFD.read(self, group, cache)
 
 
@@ -1242,9 +1211,9 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
         else:  # RDS0
             for mfd_entry in self.read_mfd_name_entries(cache):
                 match = True
-                if ppn.group != ANY_GROUP:
+                if ppn.group != PPN.ANY_GROUP:
                     match &= mfd_entry.ppn.group == ppn.group
-                if ppn.user != ANY_USER:
+                if ppn.user != PPN.ANY_USER:
                     match &= mfd_entry.ppn.user == ppn.user
                 if match:
                     if mfd_entry.ppn == ACCOUNT_1_1_PPN:
@@ -1342,9 +1311,9 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
         if ppn is not None:
             for mfd_entry in self.read_mfd_name_entries():
                 match = True
-                if ppn.group != ANY_GROUP:
+                if ppn.group != PPN.ANY_GROUP:
                     match &= mfd_entry.ppn.group == ppn.group
-                if ppn.user != ANY_USER:
+                if ppn.user != PPN.ANY_USER:
                     match &= mfd_entry.ppn.user == ppn.user
                 if match:
                     sys.stdout.write(f"{ppn}\n")

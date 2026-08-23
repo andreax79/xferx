@@ -18,73 +18,103 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+from typing import Type, TypeVar
+
+T_UIC = TypeVar("T_UIC", bound="UIC")
+
 __all__ = [
     "UIC",
     "ANY_UIC",
     "DEFAULT_UIC",
 ]
 
-ANY_USER = 0xFF
-ANY_GROUP = 0xFF
-
 
 class UIC:
     """
     User Identification Code
-    The format of UIC if [ggg,uuu] there ggg and uuu are octal digits
+    The format of UIC if [ggg,uuu] there ggg and uuu are octal (or decimal) digits
     The value on the left of the comma is represents the group number,
     the value on the right represents the user's number within the group.
     """
+
+    GROUP_BITS = 8  # Number of bits of the group number
+    USER_BITS = 8  # Number of bits of the user number
+    IS_OCTAL = True  # Indicates that the UIC is represented in octal format
+    ANY_USER = 0xFF
+    ANY_GROUP = 0xFF
 
     group: int
     user: int
 
     def __init__(self, group: int, user: int):
-        self.group = group & 0xFF
-        self.user = user & 0xFF
+        self.group = group & ((1 << self.GROUP_BITS) - 1)
+        self.user = user & ((1 << self.USER_BITS) - 1)
 
     @classmethod
-    def from_str(cls, code_str: str, strict: bool = False) -> "UIC":
+    def from_str(cls: Type[T_UIC], code_str: str, strict: bool = False) -> T_UIC:
         code_str, tmp = code_str.split("[")[1].split("]", 1)
         if strict and tmp:
             raise ValueError("Invalid UIC")
         group_str, user_str = code_str.split(",")
         if group_str == "*":
-            group = ANY_GROUP
+            group = cls.ANY_GROUP
         else:
-            group = int(group_str, 8) & 0xFF
+            group = int(group_str, 8 if cls.IS_OCTAL else 10)
         if user_str == "*":
-            user = ANY_USER
+            user = cls.ANY_USER
         else:
-            user = int(user_str, 8) & 0xFF
+            user = int(user_str, 8 if cls.IS_OCTAL else 10)
         return cls(group, user)
 
     @classmethod
-    def from_word(cls, code_int: int) -> "UIC":
-        group = code_int >> 8
-        user = code_int & 0xFF
+    def from_word(cls: Type[T_UIC], code_int: int) -> T_UIC:
+        user_mask = (1 << cls.USER_BITS) - 1
+        user = code_int & user_mask
+        group = code_int >> cls.USER_BITS
         return cls(group, user)
 
     @property
     def has_wildcard(self) -> bool:
-        return self.group == ANY_GROUP or self.user == ANY_USER
+        return self.group == self.ANY_GROUP or self.user == self.ANY_USER
 
     def to_word(self) -> int:
-        return (self.group << 8) + self.user
+        return (self.group << self.USER_BITS) | self.user
+
+    @staticmethod
+    def _digit_width(bits: int, base: int) -> int:
+        """
+        Calculate the number of digits needed to represent a value
+        with the given number of bits in the specified base.
+        """
+        value = (1 << bits) - 1
+        width = 1
+        while value >= base:
+            value //= base
+            width += 1
+        return width
 
     def to_wide_str(self) -> str:
-        g = f"{self.group:o}" if self.group != ANY_GROUP else "*"
-        u = f"{self.user:o}" if self.user != ANY_USER else "*"
-        return f"[{g:>3},{u:<3}]"
+        if self.IS_OCTAL:
+            group_width = (self.GROUP_BITS + 2) // 3
+            user_width = (self.USER_BITS + 2) // 3
+            g = f"{self.group:o}" if self.group != self.ANY_GROUP else "*"
+            u = f"{self.user:o}" if self.user != self.ANY_USER else "*"
+            return f"[{g:>{group_width}},{u:<{user_width}}]"
+        else:
+            group_width = self._digit_width(self.GROUP_BITS, 10)
+            user_width = self._digit_width(self.USER_BITS, 10)
+            g = str(self.group) if self.group != self.ANY_GROUP else "*"
+            u = str(self.user) if self.user != self.ANY_USER else "*"
+            return f"[{g:>{group_width}},{u:<{user_width}}]"
 
     def match(self, other: "UIC") -> bool:
         if self == other:
             return True
-        elif self.group == ANY_GROUP and self.user == ANY_USER:
+        elif self.group == self.ANY_GROUP and self.user == self.ANY_USER:
             return True
-        elif self.group == ANY_GROUP and self.user == other.user:
+        elif self.group == self.ANY_GROUP and self.user == other.user:
             return True
-        elif self.group == other.group and self.user == ANY_USER:
+        elif self.group == other.group and self.user == self.ANY_USER:
             return True
         else:
             return False
@@ -111,8 +141,12 @@ class UIC:
         return hash(self.to_word())
 
     def __str__(self) -> str:
-        g = f"{self.group:o}" if self.group != ANY_GROUP else "*"
-        u = f"{self.user:o}" if self.user != ANY_USER else "*"
+        if self.IS_OCTAL:
+            g = f"{self.group:o}" if self.group != self.ANY_GROUP else "*"
+            u = f"{self.user:o}" if self.user != self.ANY_USER else "*"
+        else:
+            g = str(self.group) if self.group != self.ANY_GROUP else "*"
+            u = str(self.user) if self.user != self.ANY_USER else "*"
         return f"[{g},{u}]"
 
     def __repr__(self) -> str:

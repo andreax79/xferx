@@ -3,8 +3,6 @@ from datetime import date
 import pytest
 
 from xferx.pdp11.rstsfs import (  # UserFileDirectoryBlock,; date_to_rsts,; rsts_to_date,
-    ANY_GROUP,
-    ANY_USER,
     PPN,
     RSTSFilesystem,
 )
@@ -71,20 +69,20 @@ def test_ppn_from_str_normal_case():
 
 def test_ppn_from_str_any_group():
     ppn = PPN.from_str("[*,45]")
-    assert ppn.group == ANY_GROUP
+    assert ppn.group == PPN.ANY_GROUP
     assert ppn.user == 45
 
 
 def test_ppn_from_str_any_user():
     ppn = PPN.from_str("[123,*]")
     assert ppn.group == 123
-    assert ppn.user == ANY_USER
+    assert ppn.user == PPN.ANY_USER
 
 
 def test_ppn_from_str_any_group_and_user():
     ppn = PPN.from_str("[*,*]")
-    assert ppn.group == ANY_GROUP
-    assert ppn.user == ANY_USER
+    assert ppn.group == PPN.ANY_GROUP
+    assert ppn.user == PPN.ANY_USER
 
 
 def test_ppn_from_word_normal_case():
@@ -99,17 +97,17 @@ def test_ppn_to_wide_str_normal_case():
 
 
 def test_ppn_to_wide_str_any_group():
-    ppn = PPN(ANY_GROUP, 45)
+    ppn = PPN(PPN.ANY_GROUP, 45)
     assert ppn.to_wide_str() == "[  *,45 ]"
 
 
 def test_ppn_to_wide_str_any_user():
-    ppn = PPN(123, ANY_USER)
+    ppn = PPN(123, PPN.ANY_USER)
     assert ppn.to_wide_str() == "[123,*  ]"
 
 
 def test_ppn_to_wide_str_any_group_and_user():
-    ppn = PPN(ANY_GROUP, ANY_USER)
+    ppn = PPN(PPN.ANY_GROUP, PPN.ANY_USER)
     assert ppn.to_wide_str() == "[  *,*  ]"
 
 
@@ -119,15 +117,15 @@ def test_ppn_str_normal_case():
 
 
 def test_ppn_str_any_group():
-    ppn = PPN(ANY_GROUP, 45)
+    ppn = PPN(PPN.ANY_GROUP, 45)
     assert str(ppn) == "[*,45]"
 
 
 def test_ppn_str_any_user():
-    ppn = PPN(123, ANY_USER)
+    ppn = PPN(123, PPN.ANY_USER)
     assert str(ppn) == "[123,*]"
 
 
 def test_ppn_str_any_group_and_user():
-    ppn = PPN(ANY_GROUP, ANY_USER)
+    ppn = PPN(PPN.ANY_GROUP, PPN.ANY_USER)
     assert str(ppn) == "[*,*]"

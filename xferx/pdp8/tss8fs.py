@@ -30,7 +30,7 @@ from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
 from ..commons import ASCII, BLOCK_SIZE, IMAGE, READ_FILE_FULL, filename_match
 from ..device.abstract import AbstractDevice
 from ..device.block_12bit import BlockDevice12Bit, RXBlockDevice12Bit
-from ..uic import ANY_GROUP, ANY_USER, UIC
+from ..uic import UIC
 from .os8fs import oct_dump
 
 __all__ = [
@@ -138,30 +138,8 @@ class PPN(UIC):
     TSS/8 Project-Programmer Numbers
     """
 
-    @classmethod
-    def from_str(cls, code_str: str, strict: bool = False) -> "PPN":
-        code_str, tmp = code_str.split("[")[1].split("]", 1)
-        if strict and tmp:
-            raise ValueError("Invalid PPN")
-        group_str, user_str = code_str.split(",")
-        if group_str == "*":
-            group = ANY_GROUP
-        else:
-            group = int(group_str, 8) & 0o77
-        if user_str == "*":
-            user = ANY_USER
-        else:
-            user = int(user_str, 8) & 0o77
-        return cls(group, user)
-
-    @classmethod
-    def from_word(cls, code_int: int) -> "PPN":
-        group = code_int >> 6
-        user = code_int & 0o77
-        return cls(group, user)
-
-    def to_word(self) -> int:
-        return (self.group << 6) + self.user
+    GROUP_BITS = 6
+    USER_BITS = 6
 
 
 ANY_PPN = PPN.from_str("[*,*]")
