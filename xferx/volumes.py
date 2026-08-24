@@ -56,6 +56,7 @@ from .unix.unix6fs import UNIX6Filesystem
 from .unix.unix7fs import UNIX7Filesystem
 from .interdata.os32fs import OS32Filesystem
 from .interdata.os32tapefs import OS32TapeFilesystem
+from .gzip_file import GzipFile
 
 __all__ = [
     "Volumes",
@@ -275,7 +276,11 @@ class Volumes(object):
         try:
             filesystem = FILESYSTEMS.get(fstype or "rt11", RT11Filesystem)
             entry = fs.get_file_entry(fullname)
-            self.volumes[logical] = filesystem.mount(entry.open(), **kwargs)
+            if fullname.lower().endswith(".gz"):
+                volume = filesystem.mount(GzipFile(entry.open()), **kwargs)
+            else:
+                volume = filesystem.mount(entry.open(), **kwargs)
+            self.volumes[logical] = volume
             self.volumes[logical].target = logical
             self.volumes[logical].source = f"{volume_id}:{entry.fullname}"
             sys.stderr.write(f"?{cmd}-I-Disk {path} mounted to {logical}:\n")
@@ -305,6 +310,8 @@ class Volumes(object):
         path = path.lower()
         try:
             _, extension = path.split(".", 1)
+            if extension == "gz":
+                _, extension = path.split(".", 1)
         except Exception:
             return None
         if extension in DECTAPE_EXT:

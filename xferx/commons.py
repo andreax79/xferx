@@ -21,16 +21,17 @@
 __all__ = [
     "ASCII",
     "BLOCK_SIZE",
+    "BlockDirection",
     "DATA_FORK",
     "DECTAPE",
     "DECTAPE_EXT",
+    "Direction",
     "IMAGE",
     "READ_FILE_FULL",
     "RESOURCE_FORK",
-    "BlockDirection",
-    "Direction",
     "TrackSector",
     "bytes_to_word",
+    "cache",
     "dump_struct",
     "filename_match",
     "getch",
@@ -47,6 +48,17 @@ import sys
 import typing as t
 from dataclasses import dataclass
 from enum import Enum
+
+if sys.version_info >= (3, 9):
+    from functools import cache
+else:
+    from functools import lru_cache
+
+    _F = t.TypeVar("_F", bound=t.Callable[..., t.Any])
+
+    def cache(user_function: _F, /) -> _F:
+        return lru_cache(maxsize=None)(user_function)
+
 
 BLOCK_SIZE = 512
 BYTES_PER_LINE = 16
