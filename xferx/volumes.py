@@ -47,6 +47,7 @@ from .pdp11.files11fs import Files11Filesystem
 from .pdp11.rstsfs import RSTSFilesystem
 from .pdp11.rt11fs import RT11Filesystem
 from .pdp11.solofs import SOLOFilesystem
+from .pdp10.tops10fs import TOPS10Filesystem
 from .pdp15.adssfs import ADSSFilesystem
 from .pdp15.dos15fs import DOS15Filesystem
 from .unix.unix1fs import UNIX1Filesystem
@@ -98,6 +99,7 @@ FILESYSTEMS: t.Dict[str, t.Type[AbstractFilesystem]] = {
     "mfs": MacintoshFilesystem,
     "os32": OS32Filesystem,
     "os32mt": OS32TapeFilesystem,
+    "tops10": TOPS10Filesystem,
 }
 
 
