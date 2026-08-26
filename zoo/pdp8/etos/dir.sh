@@ -1,2 +1,6 @@
-#!/bin/bash
-../../../xferx.py --os8 etosv5b-demo.rk05 -c "dir dl0:$*"
+#!/usr/bin/env bash
+FS=os8
+DISK=etosv5b-demo.rk05
+ARGS="$*"
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+$SCRIPT_DIR/../../../xferx.py --$FS $SCRIPT_DIR/$DISK -d dl0: -c "dir $ARGS"
