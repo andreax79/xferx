@@ -27,6 +27,7 @@ __all__ = [
     "DECTAPE_EXT",
     "Direction",
     "IMAGE",
+    "LoggingLevel",
     "READ_FILE_FULL",
     "RESOURCE_FORK",
     "TrackSector",
@@ -47,7 +48,7 @@ import fnmatch
 import sys
 import typing as t
 from dataclasses import dataclass
-from enum import Enum
+from enum import Enum, IntEnum
 
 if sys.version_info >= (3, 9):
     from functools import cache
@@ -234,3 +235,9 @@ class BlockDirection:
 
     def __repr__(self) -> str:
         return str(self)
+
+
+class LoggingLevel(IntEnum):
+    DEBUG = 10
+    INFO = 20
+    ERROR = 40

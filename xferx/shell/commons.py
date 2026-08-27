@@ -25,7 +25,7 @@ import traceback
 import typing as t
 
 from ..abstract import AbstractDirectoryEntry, AbstractFilesystem
-from ..commons import BLOCK_SIZE
+from ..commons import BLOCK_SIZE, LoggingLevel
 
 if t.TYPE_CHECKING:
     from ..volumes import Volumes
@@ -130,7 +130,7 @@ def copy_file(
     to_fork: t.Optional[str],
     to_file_type: t.Optional[str],
     file_mode: t.Optional[str],
-    verbose: int,
+    level: LoggingLevel,
     cmd: str = "COPY",
 ) -> None:
     if not to_file_type:
@@ -148,7 +148,7 @@ def copy_file(
             file_mode=file_mode,
         )
     except Exception as ex:
-        if verbose:
+        if level <= LoggingLevel.DEBUG:
             traceback.print_exc()
         message = getattr(ex, "strerror", "") or str(ex)
         raise CommandError(f"?{cmd}-F-Error copying {from_entry.fullname}: {message}")
@@ -304,12 +304,12 @@ class PartialMatching:
 class ShellContext:
     shell: "Shell"
     volumes: "Volumes"
-    verbose: bool
+    level: LoggingLevel
 
     def __init__(self, shell: "Shell") -> None:
         self.shell = shell
         self.volumes = shell.volumes
-        self.verbose = shell.verbose
+        self.level = shell.level
 
 
 ShellCommand = t.Callable[["ShellContext", t.List[str]], None]

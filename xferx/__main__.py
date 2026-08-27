@@ -22,6 +22,7 @@ import argparse
 import sys
 import typing as t
 
+from .commons import LoggingLevel
 from .shell import Shell
 from .volumes import FILESYSTEMS
 
@@ -68,9 +69,20 @@ def main() -> None:
     parser.add_argument(
         "-v",
         "--verbose",
-        action="store_true",
-        default=False,
+        action="store_const",
+        dest="level",
+        default=LoggingLevel.INFO,
+        const=LoggingLevel.DEBUG,
         help="display verbose output",
+    )
+    parser.add_argument(
+        "-q",
+        "--quiet",
+        action="store_const",
+        dest="level",
+        default=LoggingLevel.INFO,
+        const=LoggingLevel.ERROR,
+        help="display only errors",
     )
     for name, fs in FILESYSTEMS.items():
         parser.add_argument(
@@ -86,15 +98,15 @@ def main() -> None:
         help="disk to be mounted",
     )
     options = parser.parse_args()
-    shell = Shell(verbose=options.verbose)
+    shell = Shell(level=options.level)
     # Mount disks
     i = 0
     try:
         for fstype, dsk in getattr(options, "mounts", []):
-            shell.volumes.mount(dsk, f"DL{i}:", fstype=fstype, verbose=shell.verbose)
+            shell.volumes.mount(dsk, f"DL{i}:", fstype=fstype, level=shell.level)
             i = i + 1
         for i, dsk in enumerate(options.disk):
-            shell.volumes.mount(dsk, f"DL{i}:", verbose=shell.verbose)
+            shell.volumes.mount(dsk, f"DL{i}:", level=shell.level)
             i = i + 1
     except Exception as ex:
         sys.stderr.write(f"{ex}\n")

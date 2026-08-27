@@ -24,7 +24,7 @@ import shlex
 import sys
 import typing as t
 
-from ..commons import ASCII, BLOCK_SIZE, dump_struct, splitdrive
+from ..commons import ASCII, BLOCK_SIZE, LoggingLevel, dump_struct, splitdrive
 from ..volumes import DEFAULT_VOLUME, FILESYSTEMS
 from .commons import (
     CommandError,
@@ -72,6 +72,13 @@ DIR             Lists file directories
     """
     # fmt: on
     args, options = extract_options(args, "/brief", "/uic", "/full")
+    # if options.get("brief"):
+    #     if not args:
+    #         args = [DEFAULT_VOLUME + ":"]
+    #     for arg in args:
+    #         for x in context.volumes.filter_entries_list(arg):
+    #             sys.stdout.write(f"{x.basename}\n")
+    #     return
     if not args:
         context.volumes.dir(f"{DEFAULT_VOLUME}:", options, cmd="DIR")  # type: ignore
     else:
@@ -167,7 +174,7 @@ COPY            Copies files
         if not from_entry:
             raise CommandError(f"?COPY-F-Error copying {source.fullname}")
         sys.stderr.write("%s:%s -> %s:%s\n" % (from_volume_id, source.fullname, to_volume_id, to_path))
-        copy_file(from_entry, from_fork, to_fs, to_path, to_fork, to_file_type, file_mode, context.verbose, cmd="COPY")
+        copy_file(from_entry, from_fork, to_fs, to_path, to_fork, to_file_type, file_mode, context.level, cmd="COPY")
     else:
         if not to:
             to = context.volumes.get_volume(to_volume_id).get_pwd()
@@ -180,7 +187,7 @@ COPY            Copies files
                 to_path = from_entry.basename
             sys.stderr.write("%s:%s -> %s:%s\n" % (from_volume_id, from_entry.fullname, to_volume_id, to_path))
             copy_file(
-                from_entry, from_fork, to_fs, to_path, to_fork, to_file_type, file_mode, context.verbose, cmd="COPY"
+                from_entry, from_fork, to_fs, to_path, to_fork, to_file_type, file_mode, context.level, cmd="COPY"
             )
 
 
@@ -210,7 +217,7 @@ DELETE          Removes files from a volume
             context.volumes.filter_entries_list(pattern=arg, expand=False, cmd="DELETE")
         ):  # don't expand directories
             match = True
-            if x.delete():
+            if x.delete() and context.level <= LoggingLevel.INFO:
                 sys.stderr.write(f"?DELETE-I-{x.fullname} deleted\n")
             else:
                 sys.stderr.write(f"?DELETE-F-Error deleting {x.fullname}\n")
@@ -391,7 +398,7 @@ MOUNT           Assigns a logical disk unit to a file
         if options.get(filesystem):
             fstype = filesystem
             break
-    context.volumes.mount(path, logical, fstype=fstype, verbose=context.verbose, device_type=device_type)
+    context.volumes.mount(path, logical, fstype=fstype, level=context.level, device_type=device_type)
 
 
 @cmds.register("DIS_MOUNT")
@@ -448,7 +455,7 @@ ASSIGN          Associates a logical device name with a device
         volume_id = ask("Device name? ")
     if not logical:
         logical = ask("Logical name? ")
-    context.volumes.assign(volume_id, logical, verbose=context.verbose)
+    context.volumes.assign(volume_id, logical, level=context.level)
 
 
 @cmds.register("DEA_SSIGN")

@@ -23,7 +23,7 @@ import sys
 import traceback
 import typing as t
 
-from ..commons import splitdrive
+from ..commons import LoggingLevel, splitdrive
 from ..volumes import Volumes
 from .batch import BatchContext
 from .cmds import cmds
@@ -50,14 +50,17 @@ HISTORY_LENGTH = 1000
 
 
 class Shell:
-    verbose: bool = False  # Verbose mode
+    level: LoggingLevel = LoggingLevel.INFO  # Logging level
     volumes: Volumes  # Volumes manager
     prompt: str  # Command prompt
     history_file: str  # Path to the history file
     completion_matches: t.List[str]  # Matches for shell completion
 
-    def __init__(self, verbose: bool = False):
-        self.verbose = verbose
+    def __init__(self, level: LoggingLevel = LoggingLevel.INFO, verbose: t.Optional[bool] = None):
+        if verbose is not None:
+            self.level = LoggingLevel.DEBUG if verbose else LoggingLevel.INFO
+        else:
+            self.level = level
         self.volumes = Volumes()
         self.update_prompt()
         self.history_file = os.path.expanduser(HISTORY_FILENAME)
@@ -239,7 +242,7 @@ class Shell:
         except Exception as ex:
             message = str(sys.exc_info()[1])
             sys.stderr.write(f"{message}\n")
-            if self.verbose and not isinstance(ex, CommandError):
+            if self.level <= LoggingLevel.DEBUG and not isinstance(ex, CommandError):
                 traceback.print_exc()
             if batch:
                 raise ex

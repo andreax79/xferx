@@ -29,7 +29,7 @@ from .apple.appledosfs import AppleDOSFilesystem
 from .apple.mfs import MacintoshFilesystem
 from .apple.pascalfs import PascalFilesystem
 from .apple.prodosfs import ProDOSFilesystem
-from .commons import ASCII, DECTAPE, DECTAPE_EXT, splitdrive
+from .commons import ASCII, DECTAPE, DECTAPE_EXT, LoggingLevel, splitdrive
 from .native import NativeFilesystem
 from .nova.dgdosdumpfs import DGDOSDumpFilesystem
 from .nova.dgdosfs import DGDOSFilesystem
@@ -232,7 +232,7 @@ class Volumes(object):
         """
         return self.defdev
 
-    def assign(self, volume_id: str, logical: str, verbose: bool = False, cmd: str = "KMON") -> None:
+    def assign(self, volume_id: str, logical: str, level: LoggingLevel = LoggingLevel.INFO, cmd: str = "KMON") -> None:
         """
         Associate a logical device name with a device
         """
@@ -245,7 +245,7 @@ class Volumes(object):
             self.get_volume(volume_id, cmd=cmd)
             self.logical[logical] = volume_id
 
-    def deassign(self, volume_id: str, verbose: bool = False, cmd: str = "KMON") -> None:
+    def deassign(self, volume_id: str, level: LoggingLevel = LoggingLevel.INFO, cmd: str = "KMON") -> None:
         """
         Removes logical device name assignments
         """
@@ -260,7 +260,7 @@ class Volumes(object):
         logical: str,
         fstype: t.Optional[str] = None,
         device_type: t.Optional[str] = None,
-        verbose: bool = False,
+        level: LoggingLevel = LoggingLevel.INFO,
         cmd: str = "MOUNT",
     ) -> None:
         """
@@ -285,9 +285,10 @@ class Volumes(object):
             self.volumes[logical] = volume
             self.volumes[logical].target = logical
             self.volumes[logical].source = f"{volume_id}:{entry.fullname}"
-            sys.stderr.write(f"?{cmd}-I-Disk {path} mounted to {logical}:\n")
+            if level <= LoggingLevel.INFO:
+                sys.stderr.write(f"?{cmd}-I-Disk {path} mounted to {logical}:\n")
         except Exception as ex:
-            if verbose:
+            if level <= LoggingLevel.DEBUG:
                 traceback.print_exc()
             message = getattr(ex, "strerror", "") or str(ex)
             raise Exception(f"?{cmd}-F-Error mounting {path} to {logical}: {message}\n")
