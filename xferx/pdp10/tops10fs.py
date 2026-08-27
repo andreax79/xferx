@@ -1314,10 +1314,9 @@ class TOPS10Filesystem(AbstractBlockFilesystem):
         self.dir(volume_id, pattern=str(MFD_PPN), options=options)
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
-        if options.get("uic"):
-            self.show_accounts(volume_id, options)
-            return
-
+        """
+        List directory entries
+        """
         files = 0
         blocks = 0
         ppn, basename = tops10_split_fullname(fullname=pattern, wildcard=True, ppn=self.ppn)

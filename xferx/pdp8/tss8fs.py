@@ -1595,8 +1595,11 @@ class TSS8Filesystem(AbstractFilesystem):
                 )
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
+        """
+        List directory entries
+        """
         ppn, _ = tss8_split_fullname(fullname=pattern, wildcard=True, ppn=self.ppn)
-        if options.get("uic") or ppn == MFD_PPN:
+        if ppn == MFD_PPN:
             self.show_accounts(volume_id, options)
         else:
             blocks = 0

@@ -1269,10 +1269,9 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
         return
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
-        if options.get("uic"):
-            # Listing of all PPN
-            self.show_accounts(volume_id, options)
-            return
+        """
+        List directory entries
+        """
         files = 0
         blocks = 0
         ppn, pattern = rsts_split_fullname(fullname=pattern, wildcard=True, ppn=self.ppn)

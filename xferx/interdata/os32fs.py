@@ -1644,9 +1644,6 @@ class OS32Filesystem(AbstractBlockFilesystem):
         OS/32 Operator Reference Manual - Pag 134
         https://bitsavers.org/pdf/interdata/32bit/os32/1986_8.1.2/48-030F01R03_OS32_R08.1.2_Operators_Reference_Manual_1986.pdf
         """
-        if options.get("uic"):
-            self.show_accounts(volume_id, options)
-            return
         if not options.get("brief"):
             sys.stdout.write(f"VOLUME= {self.volume_name}\n")
             sys.stdout.write("FILENAME......     TY DBS/IBS RECL. RECORDS CREATED....... LAST WRITTEN.. KEYS\n")

@@ -405,6 +405,13 @@ class Volumes(object):
         fs = self.get_volume(volume_id, cmd=cmd)
         return fs.isdir(fullname)
 
+    def show_accounts(self, volume_id: str, options: t.Dict[str, bool], cmd: str = "SHOW ACCOUNTS") -> None:
+        """
+        Listing of all the accounts on the volume
+        """
+        fs = self.get_volume(volume_id, cmd=cmd)
+        return fs.show_accounts(self.canonical_volume(volume_id), options)
+
     def dir(self, pattern: str, options: t.Dict[str, bool], cmd: str = "DIR") -> None:
         """
         List directory contents

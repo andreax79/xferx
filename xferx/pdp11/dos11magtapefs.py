@@ -471,10 +471,9 @@ class DOS11MagTapeFilesystem(AbstractFilesystem):
             sys.stdout.write(f"{uic.to_wide_str()}\n")
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
-        if options.get("uic"):
-            # Listing of all UIC
-            self.show_accounts(volume_id, options)
-            return
+        """
+        List directory entries
+        """
         i = 0
         files = 0
         blocks = 0

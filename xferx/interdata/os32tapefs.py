@@ -860,11 +860,8 @@ class OS32TapeFilesystem(AbstractFilesystem):
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         """
-        List the files in the filesystem
+        List directory entries
         """
-        if options.get("uic"):
-            self.show_accounts(volume_id, options)
-            return
         if not options.get("brief"):
             volume_header = VolumeHeader.read(self)
             creation_date = format_time(volume_header.creation_date)

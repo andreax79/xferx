@@ -63,15 +63,23 @@ DIR             Lists file directories
    FULL
         Lists the entire directory, including unused areas
    UIC
-        Lists all UIC on a device (DOS-11, RSTS/E)
+        Lists all UIC/PPN/account on a device (DOS-11, RSTS/E)
 
   EXAMPLES
         DIR A:*.SAV
         DIR SY:
+        DIR/UIC
 
     """
     # fmt: on
     args, options = extract_options(args, "/brief", "/uic", "/full")
+    if options.get("uic") or options.get("account"):
+        # Listing of all the accounts on a volume
+        if not args:
+            args = [DEFAULT_VOLUME + ":"]
+        for arg in args:
+            context.volumes.show_accounts(arg, options, cmd="DIR")  # type: ignore
+        return
     # if options.get("brief"):
     #     if not args:
     #         args = [DEFAULT_VOLUME + ":"]

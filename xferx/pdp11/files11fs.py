@@ -707,10 +707,9 @@ class Files11Filesystem(AbstractRXBlockFilesystem):
         self.dir(volume_id, pattern="[0,0]*.DIR", options=options)
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
-        if options.get("uic"):
-            # Listing of all UIC
-            self.show_accounts(volume_id, options)
-            return
+        """
+        List directory entries
+        """
         files = 0
         blocks = 0
         allocated = 0
