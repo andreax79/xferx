@@ -478,9 +478,8 @@ class DOS11MagTapeFilesystem(AbstractFilesystem):
         files = 0
         blocks = 0
         uic, pattern = dos11_split_fullname(fullname=pattern, wildcard=True, uic=self.uic)
-        if not options.get("brief"):
-            dt = date.today().strftime('%y-%b-%d').upper()
-            sys.stdout.write(f"DIRECTORY {volume_id}: {uic}\n\n{dt}\n\n")
+        dt = date.today().strftime('%y-%b-%d').upper()
+        sys.stdout.write(f"DIRECTORY {volume_id}: {uic}\n\n{dt}\n\n")
         for x in self.filter_entries_list(pattern, uic=uic, include_all=True):
             if x.is_empty:
                 continue
@@ -488,10 +487,6 @@ class DOS11MagTapeFilesystem(AbstractFilesystem):
             if x.is_empty:
                 continue
             fullname = x.is_empty and x.filename or "%-6s.%-3s" % (x.filename, x.extension)
-            if options.get("brief"):
-                # Lists only file names and file types
-                sys.stdout.write(f"{fullname}\n")
-                continue
             creation_date = x.creation_date and x.creation_date.strftime("%d-%b-%y").upper() or ""
             attr = ""
             uic_str = x.uic.to_wide_str() if uic.has_wildcard else ""
@@ -500,8 +495,6 @@ class DOS11MagTapeFilesystem(AbstractFilesystem):
             )
             blocks += x.length
             files += 1
-        if options.get("brief"):
-            return
         sys.stdout.write("\n")
         sys.stdout.write(f"TOTL BLKS: {blocks:5}\n")
         sys.stdout.write(f"TOTL FILES: {files:4}\n")

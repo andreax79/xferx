@@ -1227,26 +1227,21 @@ class DMSFilesystem(AbstractFilesystem):
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         sam = StorageAllocationMap.read(self)
-        if not options.get("brief"):
-            # Number of free blocks
-            sys.stdout.write(f"\nFB={sam.free():>04o}\n")
-            sys.stdout.write("\n")
-            sys.stdout.write("NAME  TYPE    BLK\n")
-            sys.stdout.write("\n")
-            sys.stdout.write(f"{self.version_string}\n")
+        # Number of free blocks
+        sys.stdout.write(f"\nFB={sam.free():>04o}\n")
+        sys.stdout.write("\n")
+        sys.stdout.write("NAME  TYPE    BLK\n")
+        sys.stdout.write("\n")
+        sys.stdout.write(f"{self.version_string}\n")
         for x in self.filter_entries_list(pattern, include_all=True, sam=sam):
             if x.file_number == RESERVED_FILE_NUMBER and not options.get("full"):
                 continue
-            if options.get("brief"):
-                # Lists only file name and extension
-                sys.stdout.write(f"{x.filename:<4}.{x.extension}\n")
+            # Filename, extension, core bank (for SYS/USER files) and length in blocks (in octal)
+            if x.program_type == FILE_TYPE_SYS_USER:
+                fullname = f"{x.filename:<4}.{x.extension:<4}({x.dms_high_core_addr:>o})"
             else:
-                # Filename, extension, core bank (for SYS/USER files) and length in blocks (in octal)
-                if x.program_type == FILE_TYPE_SYS_USER:
-                    fullname = f"{x.filename:<4}.{x.extension:<4}({x.dms_high_core_addr:>o})"
-                else:
-                    fullname = f"{x.filename:<4}.{x.extension:<7}"
-                sys.stdout.write(f"{fullname} {x.get_length():>04o}\n")
+                fullname = f"{x.filename:<4}.{x.extension:<7}"
+            sys.stdout.write(f"{fullname} {x.get_length():>04o}\n")
         sys.stdout.write("\n")
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:

@@ -1603,25 +1603,20 @@ class TSS8Filesystem(AbstractFilesystem):
             self.show_accounts(volume_id, options)
         else:
             blocks = 0
-            if not options.get("brief"):
-                dt = date.today().strftime('%d-%b-%y').upper()
-                sys.stdout.write(f"DISK FILES FOR USER {ppn.group:2o},{ppn.user:2o} ON  {dt:>9}\n\n")
-                sys.stdout.write("NAME      SIZE  PROT    DATE\n")
+            dt = date.today().strftime('%d-%b-%y').upper()
+            sys.stdout.write(f"DISK FILES FOR USER {ppn.group:2o},{ppn.user:2o} ON  {dt:>9}\n\n")
+            sys.stdout.write("NAME      SIZE  PROT    DATE\n")
             for entry in self.filter_entries_list(pattern):
-                if options.get("brief"):
-                    sys.stdout.write(f"{entry.basename}\n")
-                else:
-                    try:
-                        dt = entry.creation_date.strftime('%d-%b-%y').upper()  # type: ignore
-                    except Exception:
-                        dt = ""
-                    blocks += entry.length
-                    sys.stdout.write(
-                        f"{entry.filename:<6}.{entry.extension:<3} {entry.length:>3}   {entry.tss8_protection_code:2o}  {dt:>9}\n"
-                    )
-            if not options.get("brief"):
-                sys.stdout.write(f"\nTOTAL DISK SEGMENTS:  {blocks:<6}\n")
-                # sys.stdout.write(f"\nTOTAL DISK SEGMENTS:  {blocks:<6} QUOTA: 1575\n")
+                try:
+                    dt = entry.creation_date.strftime('%d-%b-%y').upper()  # type: ignore
+                except Exception:
+                    dt = ""
+                blocks += entry.length
+                sys.stdout.write(
+                    f"{entry.filename:<6}.{entry.extension:<3} {entry.length:>3}   {entry.tss8_protection_code:2o}  {dt:>9}\n"
+                )
+            sys.stdout.write(f"\nTOTAL DISK SEGMENTS:  {blocks:<6}\n")
+            # sys.stdout.write(f"\nTOTAL DISK SEGMENTS:  {blocks:<6} QUOTA: 1575\n")
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
         if options.get("bitmap"):

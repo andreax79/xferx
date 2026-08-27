@@ -297,21 +297,16 @@ class COS300Filesystem(OS8Filesystem):
         if pattern:
             partition, pattern = os8_split_fullname(partition, pattern, wildcard=True)
         part = self.get_partition(partition)
-        if not options.get("brief"):
-            dt = date.today().strftime("%d-%b-%y").upper()
-            sys.stdout.write(f"DIRECTORY       {dt}\n\n")
-            sys.stdout.write("NAME   TYPE LN    DATE\n\n")
+        dt = date.today().strftime("%d-%b-%y").upper()
+        sys.stdout.write(f"DIRECTORY       {dt}\n\n")
+        sys.stdout.write("NAME   TYPE LN    DATE\n\n")
         for segment in part.read_dir_segments():
             for x in segment.filter_entries_list(pattern):
                 fullname = f"{x.filename:<6}.{x.extension:<2}"
-                if options.get("brief"):
-                    sys.stdout.write(f"{fullname}\n")
-                else:
-                    file_date = x.creation_date and x.creation_date.strftime("%d-%b-%y").upper() or ""
-                    sys.stdout.write(f"{x.filename:<6}  {x.extension:>2}  {x.length:>02}  {file_date:<9}\n")
-        if not options.get("brief"):
-            unused = part.free()
-            sys.stdout.write(f" <{unused:>04} FREE BLOCKS>\n")
+                file_date = x.creation_date and x.creation_date.strftime("%d-%b-%y").upper() or ""
+                sys.stdout.write(f"{x.filename:<6}  {x.extension:>2}  {x.length:>02}  {file_date:<9}\n")
+        unused = part.free()
+        sys.stdout.write(f" <{unused:>04} FREE BLOCKS>\n")
 
     def read_bytes(self, fullname: str, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> bytes:
         """

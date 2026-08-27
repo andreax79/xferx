@@ -1275,19 +1275,12 @@ class RSTSFilesystem(AbstractRXBlockFilesystem):
         files = 0
         blocks = 0
         ppn, pattern = rsts_split_fullname(fullname=pattern, wildcard=True, ppn=self.ppn)
-        if not options.get("brief"):
-            sys.stdout.write(f" Name .Ext  Size    Prot   Date       {volume_id}:{ppn}\n")
+        sys.stdout.write(f" Name .Ext  Size    Prot   Date       {volume_id}:{ppn}\n")
         for x in self.filter_entries_list(pattern, ppn=ppn, include_all=True, wildcard=True):
-            if options.get("brief"):
-                # Lists only file names and file types
-                sys.stdout.write(f"{x.filename:<6}.{x.extension:<3}\n")
-            else:
-                dt = x.creation_date.strftime("%d-%b-%y %H:%M")
-                sys.stdout.write(f"{x.filename:<6}.{x.extension:<3} {x.account_entry.usiz:>5}   <{x.uprot:>3}> {dt}\n")
-                blocks += x.account_entry.usiz
-                files += 1
-        if options.get("brief"):
-            return
+            dt = x.creation_date.strftime("%d-%b-%y %H:%M")
+            sys.stdout.write(f"{x.filename:<6}.{x.extension:<3} {x.account_entry.usiz:>5}   <{x.uprot:>3}> {dt}\n")
+            blocks += x.account_entry.usiz
+            files += 1
         sys.stdout.write("\n")
         sys.stdout.write(f" Total of {blocks} blocks in {files} files in {volume_id}:{ppn}\n")
 

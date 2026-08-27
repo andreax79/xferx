@@ -1233,18 +1233,18 @@ class DECSysFilesystem(AbstractFilesystem):
             f.write_words_block(words, block_number=0, number_of_blocks=metadata["number_of_blocks"])
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
+        """
+        List directory entries
+        """
         entries = self.filter_entries_list(pattern, wildcard=True)
         if not entries:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), pattern)
-        if not options.get("brief"):
-            # Show the tape labels
-            tape_name, tape_date = self.read_tape_label()
-            sys.stdout.write(f"{tape_name}  {tape_date}\n")
+        # Show the tape labels
+        tape_name, tape_date = self.read_tape_label()
+        sys.stdout.write(f"{tape_name}  {tape_date}\n")
         for x in entries:
             if x.raw_file_type == FileType.KMON:
                 pass  # Do not show the keyboard monitor entry
-            elif options.get("brief"):
-                sys.stdout.write(f"{x.basename}\n")
             elif x.raw_file_type == FileType.SYSTEM:
                 sys.stdout.write(f"{x.basename} S {x.block_number:04}\n")
             elif x.raw_file_type == FileType.LIBRARY:

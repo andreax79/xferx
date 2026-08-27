@@ -592,11 +592,11 @@ class DGDOSDumpFilesystem(AbstractFilesystem):
         return entry
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
+        """
+        List directory entries
+        """
         for x in self.filter_entries_list(pattern, include_all=True, wildcard=True):
-            if options.get("brief"):
-                # For brief mode, print only the file name
-                sys.stdout.write(f"{x.basename}\n")
-            elif x.is_link:
+            if x.is_link:
                 # Print link information
                 # filename, target
                 sys.stdout.write(f"{x.basename:<13s}             {x.target}\n")

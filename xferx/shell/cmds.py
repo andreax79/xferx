@@ -59,7 +59,7 @@ DIR             Lists file directories
 
   OPTIONS
    BRIEF
-        Lists only file names and file types
+        Lists only file names
    FULL
         Lists the entire directory, including unused areas
    UIC
@@ -80,13 +80,14 @@ DIR             Lists file directories
         for arg in args:
             context.volumes.show_accounts(arg, options, cmd="DIR")  # type: ignore
         return
-    # if options.get("brief"):
-    #     if not args:
-    #         args = [DEFAULT_VOLUME + ":"]
-    #     for arg in args:
-    #         for x in context.volumes.filter_entries_list(arg):
-    #             sys.stdout.write(f"{x.basename}\n")
-    #     return
+    if options.get("brief"):
+        # Listing of files in brief format
+        if not args:
+            args = [DEFAULT_VOLUME + ":"]
+        for arg in args:
+            for x in context.volumes.filter_entries_list(arg):
+                sys.stdout.write(f"{x.basename}\n")
+        return
     if not args:
         context.volumes.dir(f"{DEFAULT_VOLUME}:", options, cmd="DIR")  # type: ignore
     else:

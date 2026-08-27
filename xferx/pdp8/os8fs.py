@@ -1037,23 +1037,18 @@ class OS8Filesystem(AbstractFilesystem):
                 else:
                     i = i + 1
                     fullname = f"{x.filename:<6}.{x.extension:<2}"
-                    if options.get("brief"):
-                        # Lists only file names and file types
-                        sys.stdout.write(f"{fullname}\n")
-                    else:
-                        files = files + 1
-                        blocks = blocks + x.length
-                        file_date = x.creation_date and x.creation_date.strftime("%d-%b-%y").upper() or ""
+                    files = files + 1
+                    blocks = blocks + x.length
+                    file_date = x.creation_date and x.creation_date.strftime("%d-%b-%y").upper() or ""
                 sys.stdout.write(f"{fullname} {x.file_position:04o} {x.length:>3} {file_date:<9}")
                 if i % 3 == 0:
                     sys.stdout.write("\n")
                 else:
                     sys.stdout.write("  ")
-        if not options.get("brief"):
-            if i % 3 != 0:
-                sys.stdout.write("\n")
-            unused = part.free()
-            sys.stdout.write(f"\n{files:>4} FILES IN {blocks:>4} BLOCKS - {unused:>4} FREE BLOCKS\n")
+        if i % 3 != 0:
+            sys.stdout.write("\n")
+        unused = part.free()
+        sys.stdout.write(f"\n{files:>4} FILES IN {blocks:>4} BLOCKS - {unused:>4} FREE BLOCKS\n")
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
         if arg:

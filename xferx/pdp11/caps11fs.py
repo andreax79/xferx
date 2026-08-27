@@ -540,24 +540,15 @@ class CAPS11Filesystem(AbstractFilesystem):
         return entry
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
-        if not options.get("brief"):
-            if self.caps8:
-                dt = date.today().strftime('%m/%d/%y').upper()
-                sys.stdout.write(f"{dt}\n")
-            else:
-                dt = date.today().strftime('%d-%B-%y').upper()
-                sys.stdout.write(f" {dt}\n\n")
+        if self.caps8:
+            dt = date.today().strftime('%m/%d/%y').upper()
+            sys.stdout.write(f"{dt}\n")
+        else:
+            dt = date.today().strftime('%d-%B-%y').upper()
+            sys.stdout.write(f" {dt}\n\n")
 
         for x in self.filter_entries_list(pattern, include_all=True):
-            if options.get("brief"):
-                # Omit creation date and version number
-                if x.is_empty:
-                    continue
-                elif self.caps8:
-                    sys.stdout.write(f"{x.filename:<6s}.{(x.extension or 'BIN'):<3s}\n")
-                else:
-                    sys.stdout.write(f"{x.filename:<6s} {x.extension:<3s}\n")
-            elif self.caps8:
+            if self.caps8:
                 version = f"V{x.version}" if x.version else ""
                 creation_date = x.creation_date and x.creation_date.strftime("%m/%d/%y").upper() or ""
                 sys.stdout.write(f"{x.filename:<6s}.{(x.extension or 'BIN'):<3s} {creation_date:<8s} {version}\n")

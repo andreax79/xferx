@@ -2134,34 +2134,28 @@ class ProDOSFilesystem(AbstractAppleDiskFilesystem):
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         dirname, pattern = self.prepare_filter_entries_list(pattern, include_all=False, wildcard=True)
         entry: AbstractDirectoryFileEntry = self.get_file_entry(dirname, AbstractDirectoryFileEntry)  # type: ignore
-        if not options.get("brief"):
-            sys.stdout.write(f"\n{entry.basename}\n")
-            sys.stdout.write("\n NAME           TYPE  BLOCKS  MODIFIED         CREATED          ENDFILE SUBTYPE\n\n")
+        sys.stdout.write(f"\n{entry.basename}\n")
+        sys.stdout.write("\n NAME           TYPE  BLOCKS  MODIFIED         CREATED          ENDFILE SUBTYPE\n\n")
         for x in entry.iterdir():
             if filename_match(x.basename, pattern, wildcard=True) and (isinstance(x, FileEntry)):
-                if options.get("brief"):
-                    # Lists only file names
-                    sys.stdout.write(f"{x.basename}\n")
+                file_type = format_file_type(x.prodos_file_type)
+                locked = " " if (x.access & ACCESS_WRITE_ENABLE) == ACCESS_WRITE_ENABLE else "*"
+                last_mod_date = format_time(x.last_mod_date)
+                creation_date = format_time(x.creation_date)
+                if x.prodos_file_type == TXT_FILE_TYPE:
+                    sub_type = f"R={x.aux_type:>5}"
+                elif x.prodos_file_type == BIN_FILE_TYPE:
+                    sub_type = f"A=${x.aux_type:04X}"
                 else:
-                    file_type = format_file_type(x.prodos_file_type)
-                    locked = " " if (x.access & ACCESS_WRITE_ENABLE) == ACCESS_WRITE_ENABLE else "*"
-                    last_mod_date = format_time(x.last_mod_date)
-                    creation_date = format_time(x.creation_date)
-                    if x.prodos_file_type == TXT_FILE_TYPE:
-                        sub_type = f"R={x.aux_type:>5}"
-                    elif x.prodos_file_type == BIN_FILE_TYPE:
-                        sub_type = f"A=${x.aux_type:04X}"
-                    else:
-                        sub_type = ""
-                    sys.stdout.write(
-                        f"{locked}{x.filename:<15} {file_type} {x.blocks_used:>7} {last_mod_date}  {creation_date} {x.length:>9} {sub_type}\n"
-                    )
-        if not options.get("brief"):
-            bitmap = self.read_bitmap()
-            free = bitmap.free()
-            used = bitmap.used()
-            total = free + used
-            sys.stdout.write(f"\nBLOCKS FREE:{free:>5}     BLOCKS USED:{used:>5}     TOTAL BLOCKS:  {total}\n\n")
+                    sub_type = ""
+                sys.stdout.write(
+                    f"{locked}{x.filename:<15} {file_type} {x.blocks_used:>7} {last_mod_date}  {creation_date} {x.length:>9} {sub_type}\n"
+                )
+        bitmap = self.read_bitmap()
+        free = bitmap.free()
+        used = bitmap.used()
+        total = free + used
+        sys.stdout.write(f"\nBLOCKS FREE:{free:>5}     BLOCKS USED:{used:>5}     TOTAL BLOCKS:  {total}\n\n")
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
         H1 = "Filename         File Type     Access  Address   Blocks             Size        Created          Modified\n"

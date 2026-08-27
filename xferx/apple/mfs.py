@@ -1394,36 +1394,31 @@ class MacintoshFilesystem(AbstractBlockFilesystem):
         Pag 441
         https://bitsavers.org/pdf/apple/mac/developer/MPW/MPW_2.0/MPW_2.0_Reference_1987.pdf
         """
-        if not options.get("brief"):
-            sys.stdout.write("Name                  Type Crtr  Size    Flags      Last-Mod-Date     Creation-Date\n")
-            sys.stdout.write("--------------------  ---- ---- ------ ---------- ----------------- -----------------\n")
+        sys.stdout.write("Name                  Type Crtr  Size    Flags      Last-Mod-Date     Creation-Date\n")
+        sys.stdout.write("--------------------  ---- ---- ------ ---------- ----------------- -----------------\n")
         for x in self.filter_entries_list(pattern, include_all=True, wildcard=True):
-            if options.get("brief"):
-                # For brief mode, print only the file name
-                sys.stdout.write(f"{x.basename}\n")
-            else:
-                # Print file information
-                # filename, byte length, attributes, last modification date, last access date, address, use count
-                filename = f"'{x.basename}'" if " " in x.basename else x.basename
-                file_type = x.raw_file_type.decode("macroman", errors="ignore").replace("\0", " ")
-                file_creator = x.raw_file_creator.decode("macroman", errors="ignore").replace("\0", " ")
-                size = format_size(x.get_size(fork=DATA_FORK) + x.get_size(fork=RESOURCE_FORK))
-                flags = ""  #  "lvbspoimad"  # TODO
-                # l - Locked
-                # v - Invisible
-                # b - Bundle
-                # s - System
-                # p - Protected
-                # o - Stationery pad
-                # i - Initialized
-                # m - Mounted
-                # a - Alias
-                # d - Desktop
-                creation_date = x.creation_date.strftime("%m/%d/%y %I:%M %p").lstrip("0") if x.creation_date else ""
-                last_mod_date = x.last_mod_date.strftime("%m/%d/%y %I:%M %p").lstrip("0") if x.last_mod_date else ""
-                sys.stdout.write(
-                    f"{filename:<20}  {file_type:<4} {file_creator:<4} {size:>6} {flags:10} {last_mod_date:>17} {creation_date:>17}\n"
-                )
+            # Print file information
+            # filename, byte length, attributes, last modification date, last access date, address, use count
+            filename = f"'{x.basename}'" if " " in x.basename else x.basename
+            file_type = x.raw_file_type.decode("macroman", errors="ignore").replace("\0", " ")
+            file_creator = x.raw_file_creator.decode("macroman", errors="ignore").replace("\0", " ")
+            size = format_size(x.get_size(fork=DATA_FORK) + x.get_size(fork=RESOURCE_FORK))
+            flags = ""  #  "lvbspoimad"  # TODO
+            # l - Locked
+            # v - Invisible
+            # b - Bundle
+            # s - System
+            # p - Protected
+            # o - Stationery pad
+            # i - Initialized
+            # m - Mounted
+            # a - Alias
+            # d - Desktop
+            creation_date = x.creation_date.strftime("%m/%d/%y %I:%M %p").lstrip("0") if x.creation_date else ""
+            last_mod_date = x.last_mod_date.strftime("%m/%d/%y %I:%M %p").lstrip("0") if x.last_mod_date else ""
+            sys.stdout.write(
+                f"{filename:<20}  {file_type:<4} {file_creator:<4} {size:>6} {flags:10} {last_mod_date:>17} {creation_date:>17}\n"
+            )
         sys.stdout.write("\n")
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:

@@ -651,37 +651,31 @@ class PascalFilesystem(AbstractAppleDiskFilesystem):
         blocks = 0  # Used blocks
         unused = 0  # Unused blocks
         largest_unused = 0  # Largest unused block
-        if not options.get("brief"):
-            sys.stdout.write(f"{volume_id}:\n")
+        sys.stdout.write(f"{volume_id}:\n")
         if pattern:
             pattern = pascal_canonical_filename(pattern, wildcard=True)
         for x in volume_dir.iterdir(include_empty_area=True):
-            if options.get("brief"):
-                if filename_match(x.basename, pattern, wildcard=True):
-                    sys.stdout.write(f"{x.fullname}\n")
+            if x.is_empty:
+                if x.length > largest_unused:
+                    largest_unused = x.length
+                unused = unused + x.length
+                if not pattern:
+                    sys.stdout.write(f"{'< UNUSED >':<15} {x.length:>6}  {'':>9} {x.start_block:>4}\n")
             else:
-                if x.is_empty:
-                    if x.length > largest_unused:
-                        largest_unused = x.length
-                    unused = unused + x.length
-                    if not pattern:
-                        sys.stdout.write(f"{'< UNUSED >':<15} {x.length:>6}  {'':>9} {x.start_block:>4}\n")
+                blocks = blocks + x.length
+                date = x.creation_date and x.creation_date.strftime("%d-%b-%y") or ""
+                if x.creation_date:
+                    date = x.creation_date.strftime("%d-%b-%y").lstrip("0")
                 else:
-                    blocks = blocks + x.length
-                    date = x.creation_date and x.creation_date.strftime("%d-%b-%y") or ""
-                    if x.creation_date:
-                        date = x.creation_date.strftime("%d-%b-%y").lstrip("0")
-                    else:
-                        date = ""
-                    if filename_match(x.basename, pattern, wildcard=True):
-                        files = files + 1
-                        sys.stdout.write(
-                            f"{x.fullname:<15} {x.length:>6}  {date:>9} {x.start_block:>4}  {x.last_block_bytes:>3}  {x.long_file_type}\n"
-                        )
-        if not options.get("brief"):
-            sys.stdout.write(
-                f"{files}/{volume_dir.number_of_files} files <listed/in dir>, {blocks} blocks used, {unused} unused, {largest_unused} in largest\n"
-            )
+                    date = ""
+                if filename_match(x.basename, pattern, wildcard=True):
+                    files = files + 1
+                    sys.stdout.write(
+                        f"{x.fullname:<15} {x.length:>6}  {date:>9} {x.start_block:>4}  {x.last_block_bytes:>3}  {x.long_file_type}\n"
+                    )
+        sys.stdout.write(
+            f"{files}/{volume_dir.number_of_files} files <listed/in dir>, {blocks} blocks used, {unused} unused, {largest_unused} in largest\n"
+        )
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
         if arg:

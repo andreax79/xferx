@@ -674,34 +674,33 @@ class UNIXFilesystem(AbstractBlockFilesystem):
         return result
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
+        """
+        List directory entries
+        """
         entries = sorted(self.filter_entries_list(pattern, include_all=True, wildcard=True))
         if not entries:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), pattern)
         uids = self.read_uids()
-        if not options.get("brief"):
-            blocks = reduce(lambda x, y: x + y, [x.inode.get_length() for x in entries])
-            if self.version < 3:
-                sys.stdout.write(f"total {blocks:>4}\n")
-            else:
-                sys.stdout.write(f"blocks = {blocks}\n")
+        blocks = reduce(lambda x, y: x + y, [x.inode.get_length() for x in entries])
+        if self.version < 3:
+            sys.stdout.write(f"total {blocks:>4}\n")
+        else:
+            sys.stdout.write(f"blocks = {blocks}\n")
+
         for x in entries:
             if not options.get("full") and x.basename.startswith("."):
                 pass
-            elif options.get("brief"):
-                # Lists only file names
-                sys.stdout.write(f"{x.basename}\n")
+            mode = format_mode(x.inode.flags, self.version, self.perms)
+            time = format_time(x.inode.mtime)
+            uid = uids.get(x.inode.uid, str(x.inode.uid))
+            if self.version < 3:
+                sys.stdout.write(
+                    f"{x.inode_num:>3} {mode} {x.inode.nlinks:>2} {uid:<6} {x.inode.size:>6} {time} {x.basename}\n"
+                )
             else:
-                mode = format_mode(x.inode.flags, self.version, self.perms)
-                time = format_time(x.inode.mtime)
-                uid = uids.get(x.inode.uid, str(x.inode.uid))
-                if self.version < 3:
-                    sys.stdout.write(
-                        f"{x.inode_num:>3} {mode} {x.inode.nlinks:>2} {uid:<6} {x.inode.size:>6} {time} {x.basename}\n"
-                    )
-                else:
-                    sys.stdout.write(
-                        f"{x.inode_num:>5} {mode}{x.inode.nlinks:>2} {uid:<6}{x.inode.size:>7} {time} {x.basename}\n"
-                    )
+                sys.stdout.write(
+                    f"{x.inode_num:>5} {mode}{x.inode.nlinks:>2} {uid:<6}{x.inode.size:>7} {time} {x.basename}\n"
+                )
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
         if arg:

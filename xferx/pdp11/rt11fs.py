@@ -1044,16 +1044,10 @@ class RT11Filesystem(AbstractRXBlockFilesystem):
                     continue
                 i = i + 1
                 if x.is_empty or x.is_tentative:
-                    if options.get("brief"):
-                        continue
                     fullname = "< UNUSED >"
                     dt = ""
                 else:
                     fullname = x.is_empty and x.filename or "%-6s.%-3s" % (x.filename, x.extension)
-                    if options.get("brief"):
-                        # Lists only file names and file types
-                        sys.stdout.write(f"{fullname}\n")
-                        continue
                     dt = x.creation_date and x.creation_date.strftime("%d-%b-%y") or ""
                 if x.is_permanent:
                     files = files + 1
@@ -1069,8 +1063,6 @@ class RT11Filesystem(AbstractRXBlockFilesystem):
                     sys.stdout.write("    ")
                 else:
                     sys.stdout.write("\n")
-        if options.get("brief"):
-            return
         if i % 2 == 1:
             sys.stdout.write("\n")
         sys.stdout.write(f" {files} Files, {blocks} Blocks\n")

@@ -424,15 +424,13 @@ class NativeFilesystem(AbstractFilesystem):
         return path.is_dir()
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
-        if options.get("brief"):
-            # Lists only file names and file types
-            for x in self.filter_entries_list(pattern):
-                sys.stdout.write(f"{x.basename}\n")
-        else:
-            for x in self.filter_entries_list(pattern):
-                et = f"{format_size(x.get_size()):>15s}" if x.is_regular_file else x.entry_type
-                dt = x.creation_date.strftime("%d-%b-%Y %H:%M ") if x.creation_date else ""
-                sys.stdout.write(f"{et:>15s} {dt:>19s} {x.basename}\n")
+        """
+        List directory entries
+        """
+        for x in self.filter_entries_list(pattern):
+            et = f"{format_size(x.get_size()):>15s}" if x.is_regular_file else x.entry_type
+            dt = x.creation_date.strftime("%d-%b-%Y %H:%M ") if x.creation_date else ""
+            sys.stdout.write(f"{et:>15s} {dt:>19s} {x.basename}\n")
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
         pass

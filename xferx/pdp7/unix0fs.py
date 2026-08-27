@@ -984,7 +984,7 @@ class UNIX0Filesystem(UNIXFilesystem):
         entries = sorted(self.filter_entries_list(pattern, include_all=True, wildcard=True))
         if not entries:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), pattern)
-        if not options.get("brief") and not self.version == 0:
+        if not self.version == 0:
             blocks = reduce(lambda x, y: x + y, [x.inode.get_length() for x in entries])
             if self.version < 3:
                 sys.stdout.write(f"total {blocks:>4}\n")
@@ -993,9 +993,6 @@ class UNIX0Filesystem(UNIXFilesystem):
         for x in entries:
             if not options.get("full") and x.basename.startswith("."):
                 pass
-            elif options.get("brief"):
-                # Lists only file names
-                sys.stdout.write(f"{x.basename}\n")
             uid = x.inode.uid if x.inode.uid != -1 else 0o77
             sys.stdout.write(
                 f"{x.inode_num:>03o} {x.inode.flags & 0o77:02o} {uid:02o} {x.inode.nlinks:>02o} {x.inode.size:>05o} {x.basename}\n"

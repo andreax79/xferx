@@ -1026,19 +1026,13 @@ class SOLOFilesystem(AbstractRXBlockFilesystem):
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         files = 0
         blocks = 0
-        if not options.get("brief"):
-            sys.stdout.write("SOLO SYSTEM FILES\n\n")
+        sys.stdout.write("SOLO SYSTEM FILES\n\n")
         for x in sorted(self.filter_entries_list(pattern, include_all=bool(options.get("full")), wildcard=True)):
-            if options.get("brief"):
-                sys.stdout.write(f"{x.filename}\n")
-            else:
-                sys.stdout.write(
-                    f"{x.filename:<12} {x.file_type:<12} {'PROTECTED' if x.protected else 'UNPROTECTED':<12} {x.length:>6} PAGES\n"
-                )
+            sys.stdout.write(
+                f"{x.filename:<12} {x.file_type:<12} {'PROTECTED' if x.protected else 'UNPROTECTED':<12} {x.length:>6} PAGES\n"
+            )
             blocks += x.length
             files += 1
-        if options.get("brief"):
-            return
         sys.stdout.write(f"{files:>5} ENTRIES\n{blocks:>5} PAGES\n")
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:

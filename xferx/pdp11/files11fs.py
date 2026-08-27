@@ -714,17 +714,12 @@ class Files11Filesystem(AbstractRXBlockFilesystem):
         blocks = 0
         allocated = 0
         uic, pattern = dos11_split_fullname(fullname=pattern, wildcard=True, uic=self.uic)
-        if not options.get("brief"):
-            dt = datetime.today().strftime('%y-%b-%d %H:%M').upper()
-            sys.stdout.write(f"DIRECTORY {volume_id}:{uic}\n{dt}\n\n")
+        dt = datetime.today().strftime('%y-%b-%d %H:%M').upper()
+        sys.stdout.write(f"DIRECTORY {volume_id}:{uic}\n{dt}\n\n")
         for x in self.filter_entries_list(pattern, uic=uic, include_all=True, wildcard=True):
             if x.is_empty:
                 continue
             fullname = f"{x.filename}.{x.extension};{x.version}"
-            if options.get("brief"):
-                # Lists only file names and file types
-                sys.stdout.write(f"{fullname}\n")
-                continue
             date = x.creation_date and x.creation_date.strftime("%d-%b-%y %H:%M").upper() or ""
             attr = "C" if UC_CNB & x.header.fcha else ""
             length = f"{x.header.length}."
@@ -732,8 +727,6 @@ class Files11Filesystem(AbstractRXBlockFilesystem):
             blocks += x.header.length
             allocated += x.header.length
             files += 1
-        if options.get("brief"):
-            return
         sys.stdout.write("\n")
         sys.stdout.write(f"TOTAL OF {blocks}./{allocated}. BLOCKS IN {files}. FILES\n")
 

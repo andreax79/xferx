@@ -862,53 +862,48 @@ class OS32TapeFilesystem(AbstractFilesystem):
         """
         List directory entries
         """
-        if not options.get("brief"):
-            volume_header = VolumeHeader.read(self)
-            creation_date = format_time(volume_header.creation_date)
-            sys.stdout.write(f"\nInput:     {volume_id}:\n\n")
-            sys.stdout.write("           Header Information from Input Tape:\n\n")
-            sys.stdout.write(
-                f"           Volume: {volume_header.name:>4}:   "
-                f"Date Created {creation_date}   "
-                f"BACKUP Rev.: {volume_header.revision:02}-{volume_header.update:02}\n\n"
-            )
-            if volume_header.select_vol:
-                select = f"{volume_header.select_vol}:{volume_header.select_filename}.{volume_header.select_extension}/{volume_header.select_account}"
-            else:
-                select = "** All **"
-            sys.stdout.write(f"           Size: {volume_header.buffer_size / 1024:.2f}K   Select: {select}\n\n")
-            sys.stdout.write("Files Selected:\n\n")
-            sys.stdout.write("Filename......... Type Dbs/Ibs Lrecl Records Date Created.. Date Written.. Keys\n\n")
+        volume_header = VolumeHeader.read(self)
+        creation_date = format_time(volume_header.creation_date)
+        sys.stdout.write(f"\nInput:     {volume_id}:\n\n")
+        sys.stdout.write("           Header Information from Input Tape:\n\n")
+        sys.stdout.write(
+            f"           Volume: {volume_header.name:>4}:   "
+            f"Date Created {creation_date}   "
+            f"BACKUP Rev.: {volume_header.revision:02}-{volume_header.update:02}\n\n"
+        )
+        if volume_header.select_vol:
+            select = f"{volume_header.select_vol}:{volume_header.select_filename}.{volume_header.select_extension}/{volume_header.select_account}"
+        else:
+            select = "** All **"
+        sys.stdout.write(f"           Size: {volume_header.buffer_size / 1024:.2f}K   Select: {select}\n\n")
+        sys.stdout.write("Files Selected:\n\n")
+        sys.stdout.write("Filename......... Type Dbs/Ibs Lrecl Records Date Created.. Date Written.. Keys\n\n")
+
         count = 0
         for x in self.filter_entries_list(pattern, include_all=False, wildcard=True):
             count += 1
-            if options.get("brief"):
-                # For brief mode, print only the file name
-                sys.stdout.write(f"{x.basename}\n")
+            # Print file information
+            creation_date = format_time(x.creation_date)
+            last_mod_date = format_time(x.last_mod_date)
+            if x.is_indexed or x.is_nonbuffered_indexed:
+                # DBS     - the data block size (in sectors)
+                # IBS     - the index block size (in sectors)
+                # RECL    - the record length in bytes
+                dbs_ibs_recl = f"{x.block_size:>3}/{x.index_block_size:<3} {x.record_length:>5}"
+            elif x.is_extended_contiguous:
+                dbs_ibs_recl = f"{x.block_size:>3}/{x.index_block_size:<3}"
             else:
-                # Print file information
-                creation_date = format_time(x.creation_date)
-                last_mod_date = format_time(x.last_mod_date)
-                if x.is_indexed or x.is_nonbuffered_indexed:
-                    # DBS     - the data block size (in sectors)
-                    # IBS     - the index block size (in sectors)
-                    # RECL    - the record length in bytes
-                    dbs_ibs_recl = f"{x.block_size:>3}/{x.index_block_size:<3} {x.record_length:>5}"
-                elif x.is_extended_contiguous:
-                    dbs_ibs_recl = f"{x.block_size:>3}/{x.index_block_size:<3}"
-                else:
-                    dbs_ibs_recl = ""  # TODO
+                dbs_ibs_recl = ""  # TODO
 
-                sys.stdout.write(
-                    f"{x.filename:<8}.{x.extension:<3}/{x.account:05} {x.file_type}  "
-                    f"{dbs_ibs_recl:13} "
-                    f"{x.num_of_records:>7} "
-                    f"{creation_date} "
-                    f"{last_mod_date} "
-                    f"{x.write_key:02X}{x.read_key:02X}\n"
-                )
-        if not options.get("brief"):
-            sys.stdout.write(f"{count:5} Files Selected\n\n")
+            sys.stdout.write(
+                f"{x.filename:<8}.{x.extension:<3}/{x.account:05} {x.file_type}  "
+                f"{dbs_ibs_recl:13} "
+                f"{x.num_of_records:>7} "
+                f"{creation_date} "
+                f"{last_mod_date} "
+                f"{x.write_key:02X}{x.read_key:02X}\n"
+            )
+        sys.stdout.write(f"{count:5} Files Selected\n\n")
         sys.stdout.write("\n")
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:

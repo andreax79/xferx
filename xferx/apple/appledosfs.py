@@ -1075,16 +1075,15 @@ class AppleDOSFilesystem(AbstractAppleDiskFilesystem):
         return entry
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
-        if not options.get("brief"):
-            sys.stdout.write("DISK VOLUME\n\n")
+        """
+        List directory entries
+        """
+        sys.stdout.write("DISK VOLUME\n\n")
         if pattern:
             pattern = appledos_canonical_filename(pattern, wildcard=True)
         for x in self.filter_entries_list(pattern, include_all=options.get("full", False)):
-            if options.get("brief"):
-                sys.stdout.write(f"{x.fullname}\n")
-            else:
-                prefix = "X" if x.is_deleted else "*" if x.is_locked else " "
-                sys.stdout.write(f"{prefix}{x.file_type} {x.length:>03} {x.fullname}\n")
+            prefix = "X" if x.is_deleted else "*" if x.is_locked else " "
+            sys.stdout.write(f"{prefix}{x.file_type} {x.length:>03} {x.fullname}\n")
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
         """

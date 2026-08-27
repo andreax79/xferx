@@ -352,14 +352,10 @@ class DGDOSMagTapeFilesystem(AbstractFilesystem):
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         pattern = pattern.upper() if pattern else None
-        if not options.get("brief"):
-            sys.stdout.write("Num Type         Size\n")
-            sys.stdout.write("--- ----         ----\n")
+        sys.stdout.write("Num Type         Size\n")
+        sys.stdout.write("--- ----         ----\n")
         for x in self.filter_entries_list(pattern):
-            if options.get("brief"):
-                sys.stdout.write(f"{x.fullname:>3}\n")
-            else:
-                sys.stdout.write(f"{x.fullname:>3} {x.file_type:<4} {x.get_size():>12}\n")
+            sys.stdout.write(f"{x.fullname:>3} {x.file_type:<4} {x.get_size():>12}\n")
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
         if arg:

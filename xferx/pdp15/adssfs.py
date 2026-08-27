@@ -1374,17 +1374,12 @@ class ADSSFilesystem(AbstractFilesystem):
         entries = self.filter_entries_list(pattern, wildcard=True)
         if not entries:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), pattern)
-        if not options.get("brief"):
-            sys.stdout.write("DIRECTORY LISTING\n")
+        sys.stdout.write("DIRECTORY LISTING\n")
         for x in entries:
             if not x.is_empty:
-                if options.get("brief"):
-                    sys.stdout.write(f"{x.filename:<6};{x.extension:<3}\n")
-                else:
-                    sys.stdout.write(f"{x.filename:<6} {x.extension:<3}  {x.block_number:>4o}\n")
-        if not options.get("brief"):
-            bitmap = ADSSBitmap.read(self)
-            sys.stdout.write(f"{bitmap.free():<4o} FREE BLOCKS\n")
+                sys.stdout.write(f"{x.filename:<6} {x.extension:<3}  {x.block_number:>4o}\n")
+        bitmap = ADSSBitmap.read(self)
+        sys.stdout.write(f"{bitmap.free():<4o} FREE BLOCKS\n")
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
         if options.get("bitmap"):

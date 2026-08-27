@@ -1644,45 +1644,40 @@ class OS32Filesystem(AbstractBlockFilesystem):
         OS/32 Operator Reference Manual - Pag 134
         https://bitsavers.org/pdf/interdata/32bit/os32/1986_8.1.2/48-030F01R03_OS32_R08.1.2_Operators_Reference_Manual_1986.pdf
         """
-        if not options.get("brief"):
-            sys.stdout.write(f"VOLUME= {self.volume_name}\n")
-            sys.stdout.write("FILENAME......     TY DBS/IBS RECL. RECORDS CREATED....... LAST WRITTEN.. KEYS\n")
+        sys.stdout.write(f"VOLUME= {self.volume_name}\n")
+        sys.stdout.write("FILENAME......     TY DBS/IBS RECL. RECORDS CREATED....... LAST WRITTEN.. KEYS\n")
         for x in self.filter_entries_list(pattern, include_all=False, wildcard=True):
-            if options.get("brief"):
-                # For brief mode, print only the file name
-                sys.stdout.write(f"{x.basename}\n")
-            else:
-                # Print file information
-                creation_date = format_time(x.creation_date)
-                last_mod_date = format_time(x.last_mod_date)
-                if x.is_contiguous:
-                    # RECORDS - the size of the file in sectors
-                    dbs_ibs_recl = ""
-                    records = x.last_block - x.first_block + 1
-                elif x.is_indexed or x.is_nonbuffered_indexed:
-                    # DBS     - the data block size (in sectors)
-                    # IBS     - the index block size (in sectors)
-                    # RECL    - the record length in bytes
-                    # RECORDS - the number of records in the file
-                    dbs_ibs_recl = f"{x.block_size:>3}/{x.index_block_size:<3} {x.record_length:>5}"
-                    records = x.num_of_records
-                elif x.is_extended_contiguous:
-                    # RECORDS - the size of the file in sectors
-                    dbs_ibs_recl = f"{x.block_size:>3}/{x.index_block_size:<3}"
-                    records = x.num_of_records
-                else:  # long record
-                    # RECORDS - the size of the file in sector
-                    dbs_ibs_recl = ""  # TODO
-                    records = x.num_of_records
+            # Print file information
+            creation_date = format_time(x.creation_date)
+            last_mod_date = format_time(x.last_mod_date)
+            if x.is_contiguous:
+                # RECORDS - the size of the file in sectors
+                dbs_ibs_recl = ""
+                records = x.last_block - x.first_block + 1
+            elif x.is_indexed or x.is_nonbuffered_indexed:
+                # DBS     - the data block size (in sectors)
+                # IBS     - the index block size (in sectors)
+                # RECL    - the record length in bytes
+                # RECORDS - the number of records in the file
+                dbs_ibs_recl = f"{x.block_size:>3}/{x.index_block_size:<3} {x.record_length:>5}"
+                records = x.num_of_records
+            elif x.is_extended_contiguous:
+                # RECORDS - the size of the file in sectors
+                dbs_ibs_recl = f"{x.block_size:>3}/{x.index_block_size:<3}"
+                records = x.num_of_records
+            else:  # long record
+                # RECORDS - the size of the file in sector
+                dbs_ibs_recl = ""  # TODO
+                records = x.num_of_records
 
-                sys.stdout.write(
-                    f" {x.filename:<8}.{x.extension:<3}/{x.account:05} {x.file_type} "
-                    f"{dbs_ibs_recl:13} "
-                    f"{records:>7} "
-                    f"{creation_date} "
-                    f"{last_mod_date} "
-                    f"{x.write_key:02X}{x.read_key:02X}\n"
-                )
+            sys.stdout.write(
+                f" {x.filename:<8}.{x.extension:<3}/{x.account:05} {x.file_type} "
+                f"{dbs_ibs_recl:13} "
+                f"{records:>7} "
+                f"{creation_date} "
+                f"{last_mod_date} "
+                f"{x.write_key:02X}{x.read_key:02X}\n"
+            )
         sys.stdout.write("\n")
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
