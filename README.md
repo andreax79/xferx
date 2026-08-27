@@ -17,7 +17,7 @@ XFERX is an utility for transferring files between various file systems.
 | PDP-7 DECsys      | Yes               | Yes               | Yes               | Yes               | N/A               |
 | PDP-9/15 ADSS     | Yes               | Yes               | Yes               | Yes               | N/A               |
 | PDP-10 TOPS-10    | Yes               | No                | No                | No                | No                |
-| PDP-15 DOS-15     | Yes               | No                | No                | No                | No                |
+| PDP-15 DOS-15     | Yes               | Yes               | Yes               | No                | No                |
 | UNIX v1           | Yes               | No                | No                | No                | No                |
 | UNIX v5           | Yes               | No                | No                | No                | No                |
 | UNIX v6           | Yes               | No                | No                | No                | No                |

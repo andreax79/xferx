@@ -22,7 +22,6 @@ if [ ! -f "${BOOT_DISK}" ]; then
     mv per.dta ..
     mv readme.txt ..
     cd ..
-    # rm -rf tmp
 fi
 
 pdp15 pdp15.ini

@@ -19,6 +19,8 @@
 # THE SOFTWARE.
 
 import errno
+import io
+import math
 import os
 import sys
 import typing as t
@@ -27,29 +29,45 @@ from datetime import date
 from ..abstract import AbstractDirectoryEntry, AbstractFile, AbstractFilesystem
 from ..commons import ASCII, IMAGE, READ_FILE_FULL, filename_match
 from ..device.abstract import AbstractDevice
-from ..device.block_18bit import BlockDevice18Bit, from_18bit_words_to_bytes
+from ..device.block_18bit import BlockDevice18Bit, from_18bit_words_to_bytes, from_bytes_to_18bit_words
 from .adssfs import (
     DECTAPE_BLOCKS,
     WORDS_PER_BLOCK,
     ADSSFilesystem,
     adss_canonical_filename,
     ascii_to_sixbit,
-    decode_block_format,
     oct_dump,
     sixbit_to_ascii,
+)
+from .iops import (
+    decode_block_format,
+    encode_block_format,
 )
 
 __all__ = [
     "DOS15DirectoryEntry",
     "DOS15File",
     "DOS15Filesystem",
+    "date_to_dos15",
+    "dos15_to_date",
 ]
+
+
+# A filename is a string of up to six alphanumeric characters.
+# Any printing character in the ASCII set can be used with the exception of:
+# " ", ":", ";", "," "(", ")"
+#
+# Pag 115
+# https://bitsavers.trailing-edge.com/pdf/dec/pdp15/DEC-15-YWZA-D_PDP-15_Utility_Programs_196910.pdf
 
 # Pag 87
 # https://bitsavers.org/pdf/dec/pdp15/DEC-15-ODFFA-B-D_DOS-15_System_Manual_197408.pdf
 
 RF_MFD_BLOCK = 0o1777  # MFD block number on RF disk
 RP_MFD_BLOCK = 0o47040  # MFD block number on RP disk
+SAT_BITMAP_FIRST_WORD = 3  # First word of the bitmap in the SAT block
+SAT_ENTRIES_PER_BLOCK = 250  # Number of entries in a SAT block
+WORDS_PER_LINKED_BLOCK = WORDS_PER_BLOCK - 2  # Number of words in a linked block
 
 
 def dos15_to_date(val: int) -> t.Optional[date]:
@@ -69,22 +87,40 @@ def dos15_to_date(val: int) -> t.Optional[date]:
         return None
 
 
+def date_to_dos15(val: t.Optional[date]) -> int:
+    """
+    Translate Python date to DOS-15 date
+    """
+    if val is None:
+        return 0
+    return (val.month << 12) | (val.day << 6) | ((val.year - 1970) & 0o37)
+
+
 def dos15_split_fullname(uic: str, fullname: t.Optional[str], wildcard: bool = True) -> t.Tuple[str, t.Optional[str]]:
     """
     Split a fullname into UIC and filename
 
-    UIC and filename are separated by a ":"
-    Example: "TMP:FILENAM;EXT"
+    Filename and extension are separated by a space or by a semicolon.
+    The UIC is optional, if not specified the default UIC is used.
+
+    Example of valid name ar:
+    .LOAD;BIN
+    [TMP]LPA;SRC
+    [UIC;FILENAM;EXT
+    [UIC]FILENAM EXT
     """
+    if not fullname:
+        return uic, fullname
+    if fullname.startswith("["):  # UIC is specified
+        end = fullname.find("]")
+        if end == -1:
+            raise ValueError(f"Invalid filename {fullname}")
+        uic = fullname[1:end].upper()
+        fullname = fullname[end + 1 :]
+    fullname = fullname.replace(" ", ";")
     if fullname:
-        if ":" in fullname:
-            try:
-                uic, fullname = fullname.split(":", 1)
-            except Exception:
-                return uic.upper(), fullname
-        if fullname:
-            fullname = adss_canonical_filename(fullname, wildcard=wildcard)
-    return uic.upper(), fullname
+        fullname = adss_canonical_filename(fullname, wildcard=wildcard)
+    return uic, fullname
 
 
 class DOS15File(AbstractFile):
@@ -105,25 +141,7 @@ class DOS15File(AbstractFile):
         """
         Read block(s) of data from the file
         """
-        if number_of_blocks == READ_FILE_FULL:
-            number_of_blocks = self.entry.get_length()
-        if (
-            self.closed
-            or block_number < 0
-            or number_of_blocks < 0
-            or block_number + number_of_blocks > self.entry.get_length()
-        ):
-            raise OSError(errno.EIO, os.strerror(errno.EIO))
-        data = bytearray()
-        for i, next_block_number in enumerate(self.entry.get_blocks()):
-            if i >= block_number:
-                words = self.entry.fs.read_words_block(next_block_number)
-                t = from_18bit_words_to_bytes(words, self.file_mode)
-                data.extend(t)
-                number_of_blocks -= 1
-                if number_of_blocks == 0:
-                    break
-        return bytes(data)
+        return from_18bit_words_to_bytes(self.read_words_block(block_number, number_of_blocks), self.file_mode)
 
     def read_words_block(
         self,
@@ -132,6 +150,8 @@ class DOS15File(AbstractFile):
     ) -> t.List[int]:
         """
         Read block(s) of words from the file
+
+        Exclude the last two words (previous/next block number)
         """
         if number_of_blocks == READ_FILE_FULL:
             number_of_blocks = self.entry.get_length()
@@ -145,7 +165,8 @@ class DOS15File(AbstractFile):
         words: t.List[int] = []
         for i, next_block_number in enumerate(self.entry.get_blocks()):
             if i >= block_number:
-                data = self.entry.fs.read_words_block(next_block_number)
+                # Exclude the last two words (previous/next block number)
+                data = self.entry.fs.read_words_block(next_block_number)[:-2]
                 words.extend(data)
                 number_of_blocks -= 1
                 if number_of_blocks == 0:
@@ -161,7 +182,8 @@ class DOS15File(AbstractFile):
         """
         Write block(s) of data to the file
         """
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
+        words = from_bytes_to_18bit_words(buffer, self.file_mode)
+        self.write_words_block(words, block_number, number_of_blocks)
 
     def write_words_block(
         self,
@@ -172,7 +194,22 @@ class DOS15File(AbstractFile):
         """
         Write block(s) of data to the file
         """
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
+        if (
+            self.closed
+            or block_number < 0
+            or number_of_blocks < 0
+            or block_number + number_of_blocks > self.entry.get_length()
+        ):
+            raise OSError(errno.EIO, os.strerror(errno.EIO))
+        blocks = self.entry.get_blocks()
+        for i in range(block_number, block_number + number_of_blocks):
+            previous_block_number = blocks[i - 1] if i > 0 else 0o777777
+            next_block_number = blocks[i + 1] if i < len(blocks) - 1 else 0o777777
+            data = words[:WORDS_PER_LINKED_BLOCK] + [previous_block_number, next_block_number]
+            if len(data) < WORDS_PER_LINKED_BLOCK:
+                data += [0] * (WORDS_PER_LINKED_BLOCK - len(data))
+            self.entry.fs.write_words_block(blocks[i], data)
+            words = words[WORDS_PER_LINKED_BLOCK:]  # Remove the written words
 
     def get_length(self) -> int:
         """
@@ -190,7 +227,7 @@ class DOS15File(AbstractFile):
         """
         Get file block size in bytes
         """
-        return (WORDS_PER_BLOCK - 2) * 3  # Exclude the last two words (previous/next block number)
+        return WORDS_PER_LINKED_BLOCK * 3
 
     def close(self) -> None:
         """
@@ -205,6 +242,7 @@ class DOS15File(AbstractFile):
 class DOS15DirectoryEntry(AbstractDirectoryEntry):
     """
     Directory Entry
+    ---------------
 
     Word
 
@@ -213,15 +251,15 @@ class DOS15DirectoryEntry(AbstractDirectoryEntry):
       1 |                                   |
         +-----------------------------------+
       2 | Extension                         |
-        +-----------------------------------+
+        +---------------+-------------------+
       3 | Truncated bit | First block       |
-        +-----------------------------------+
-      4 | Number of blocks                  |
-        +-----------------------------------+
+        +---+-----------+-------------------+
+      4 | ? | Number of blocks              |
+        +---+-------------------------------+
       5 | First Retrieval Information Block |
-        +-----------------------------------+
-      6 | Prot. | RIB first word            |
-        +-----------------------------------+
+        +-------+---------------------------+
+      6 | Prot. | RIB first word position   |
+        +-------+---------------------------+
       7 | Creation date                     |
         +-----------------------------------+
 
@@ -230,49 +268,70 @@ class DOS15DirectoryEntry(AbstractDirectoryEntry):
     """
 
     fs: "DOS15Filesystem"
-    directory: "UserFileDirectoryBlock"
+    ufd: "UserFileDirectory"
     file_number: int = 0  # File number in the directory
     filename: str  # Filename
     extension: str = ""  # File extension
+    is_truncated: bool = False
     block_number: int = 0  # First file block number
-    raw_data_link: int = 0  # Raw data link (truncated bit, block number)
+    _u4: int = 0  # Unknown
     length: int  # Number of blocks in the file
     protection_code: int = 0  # Protection code
-    retrieval_information_block: int  # RIB first block number
+    rib: int  # RIB first block number
     rib_position: int = 0  # Position in RIB block
     raw_creation_date: int
 
-    def __init__(self, directory: "UserFileDirectoryBlock"):
-        self.fs = directory.fs
-        self.directory = directory
+    def __init__(self, ufd: "UserFileDirectory"):
+        self.fs = ufd.fs
+        self.ufd = ufd
 
     @classmethod
     def read(
-        cls, directory: "UserFileDirectoryBlock", words: t.List[int], file_number: int, position: int
+        cls, ufd: "UserFileDirectory", words: t.List[int], file_number: int, position: int
     ) -> "DOS15DirectoryEntry":
-        self = cls(directory)
+        self = cls(ufd)
         self.file_number = file_number
         self.filename = sixbit_to_ascii(words[position]) + sixbit_to_ascii(words[position + 1])
         self.extension = sixbit_to_ascii(words[position + 2])
-        self.raw_data_link = words[position + 3]
-        self.block_number = self.raw_data_link & 0o377777  # First block number
-        self.length = words[position + 4]  # Number of blocks in the file
-        self.retrieval_information_block = words[position + 5]
+        self.block_number = words[position + 3] & 0o377777  # First block number
+        self.is_truncated = bool(words[position + 3] >> 17)  # Truncated bit
+        self._u4 = words[position + 4] >> 16  # Unknown
+        self.length = words[position + 4] & 0o377777  # Number of blocks in the file (first 2 bit are undocumented)
+        self.rib = words[position + 5]
         self.protection_code = words[position + 6] >> 16  # Protection code
-        self.rib_position = words[position + 6] & ~0o600000  # RIB first word position
+        self.rib_position = words[position + 6] & 0o177777  # RIB first word position
         self.raw_creation_date = words[position + 7]
         return self
 
+    def to_words(self) -> t.List[int]:
+        """
+        Dump the directory entry to words
+        """
+        return [
+            ascii_to_sixbit(self.filename[:3]),
+            ascii_to_sixbit(self.filename[3:6]),
+            ascii_to_sixbit(self.extension),
+            (int(self.is_truncated) << 17) | self.block_number,
+            (self._u4 << 16) | self.length,
+            self.rib,
+            (self.protection_code << 16) | self.rib_position,
+            self.raw_creation_date,
+        ]
+
     @property
-    def is_active(self) -> bool:
+    def is_empty(self) -> bool:
         """
         Is the file active?
         """
-        return self.block_number != 0 and self.raw_data_link & (1 << 17) == 0
+        return self.block_number == 0 or self.is_truncated
 
     @property
     def fullname(self) -> str:
-        return self.basename
+        return f"[{self.uic}]{self.basename}"
+
+    @property
+    def uic(self) -> str:
+        return self.ufd.uic
 
     @property
     def basename(self) -> str:
@@ -282,24 +341,17 @@ class DOS15DirectoryEntry(AbstractDirectoryEntry):
         """
         Get the blocks used by the file
         """
-        next_block_number = self.retrieval_information_block
+        next_block_number = self.rib
         length = self.length  # Length in blocks
         position = self.rib_position
         blocks = []
         while next_block_number != 0o777777 and length > 0:
-            print(next_block_number)
             rib = RetrievalInformationBlock.read(self, next_block_number)
             blocks = rib.data_blocks[position : position + length]
             length -= len(blocks)
             next_block_number = rib.next_block_number
             position = 0
         return blocks
-
-    # def get_file_bitmap(self) -> "ADSSBitmap":
-    #     """
-    #     The File Bitmap specifies the blocks occupied by the file
-    #     """
-    #     return ADSSBitmap.read(self.directory.fs, self.file_number)
 
     def get_length(self, fork: t.Optional[str] = None) -> int:
         """
@@ -317,7 +369,7 @@ class DOS15DirectoryEntry(AbstractDirectoryEntry):
         """
         Get file block size in bytes
         """
-        return (WORDS_PER_BLOCK - 1) * 3
+        return WORDS_PER_LINKED_BLOCK * 3
 
     @property
     def creation_date(self) -> t.Optional[date]:
@@ -327,13 +379,35 @@ class DOS15DirectoryEntry(AbstractDirectoryEntry):
         """
         Delete the directory entry
         """
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
+        # Clear the data block references in the RIB
+        data_blocks = self.get_blocks()
+        rib_blocks = []
+        rib_block_number = self.rib
+        remaining = self.length
+        position = self.rib_position
+        while rib_block_number != 0o777777:
+            rib = RetrievalInformationBlock.read(self, rib_block_number)
+            rib_blocks.append(rib.block_number)
+            number_of_blocks = min(remaining, len(rib.data_blocks))
+            rib.zero_references(position, number_of_blocks)
+            rib.write()
+            remaining -= number_of_blocks
+            rib_block_number = rib.next_block_number
+            position = 0
+            if remaining == 0:
+                break
 
-    def write(self) -> bool:
-        """
-        Write the directory entry
-        """
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
+        # Free the data blocks in the bitmap
+        bitmap = self.fs.read_bitmap()
+        for block_number in data_blocks:
+            if block_number not in rib_blocks:
+                bitmap.set_free(block_number)
+        bitmap.write()
+
+        # Remove the entry from the UFD
+        entries = [entry for entry in self.ufd.entries_list if entry.file_number != self.file_number]
+        self.ufd.write(entries)
+        return True
 
     def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> DOS15File:
         """
@@ -343,31 +417,39 @@ class DOS15DirectoryEntry(AbstractDirectoryEntry):
 
     def read_bytes(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> bytes:
         """Get the content of the file"""
-        if file_mode is None:
-            file_mode = IMAGE
-        # Always read the file as IMAGE
-        with self.open(IMAGE) as f:
+        with self.open() as f:
             length = self.get_length()  # Number of blocks in the file
             result = bytearray()
-            if file_mode == ASCII:
-                for i in range(length):
-                    # Read the block, exclude the last two words (previous/next block number)
-                    words = f.read_words_block(i)[:-2]
-                    result += decode_block_format(words)
-            else:
-                for i in range(length):
-                    # Read the block, exclude the last two words (previous/next block number)
-                    words = f.read_words_block(i)[:-2]
-                    result += from_18bit_words_to_bytes(words, IMAGE)
-            return bytes(result)
+            for i in range(length):
+                words = f.read_words_block(i)
+                result += decode_block_format(words)
+        return bytes(result)
 
     def __str__(self) -> str:
-        return f"{self.file_number:>2}  {self.filename:<6} {self.extension:<3}  {'Y' if self.is_active else 'N'}  {self.block_number:4}  {self.length:4}"
+        return (
+            f"{self.fullname:<17} "
+            f"{self.block_number:>6} "
+            f"{self.length:>6} "
+            f"{self.protection_code:>5} "
+            f"{self.rib:>6}  "
+            f"{self.rib_position:>6}    "
+            f"{self.creation_date} "
+            f"{'N' if self.is_empty else 'Y'}"
+        )
 
 
 class RetrievalInformationBlock:
     """
     Retrieval Information Block (RIB)
+    ---------------------------------
+
+    The RIB associates the logical sequence of blocks in the file with
+    the physical locations of the blocks on the disk.
+    The RIB is a linked list of blocks, each containing a number of entries.
+    It can be fit the last data block of the file, in which case the RIB is not a separate block and
+    does not start at the beginning of the block.
+    In this case, the first word of the RIB is not the first word of the physical block
+    and the RIB is not a complete block, but only a portion of the block.
 
     Word
 
@@ -414,17 +496,36 @@ class RetrievalInformationBlock:
         self.next_block_number = words[-1]  # Pointer to next MFD block
         return self
 
+    def write(self) -> None:
+        """
+        Write the RIB block
+        """
+        words: t.List[int] = [self.number_of_blocks] + self.data_blocks
+        words = (words + [0] * WORDS_PER_BLOCK)[:WORDS_PER_LINKED_BLOCK]
+        words.extend([self.previous_block_number, self.next_block_number])
+        self.fs.write_words_block(self.block_number, words)
+
+    def zero_references(self, position: int, number_of_blocks: int) -> None:
+        """
+        Clear data-block references belonging to a file
+        """
+        self.data_blocks[position : position + number_of_blocks] = [0] * number_of_blocks
+
     @property
     def fs(self) -> "DOS15Filesystem":
-        return self.entry.directory.fs
+        return self.entry.fs
 
 
 class UserFileDirectoryBlock(object):
     """
     User File Directory Block
+    -------------------------
+
+    Pag 81
+    https://bitsavers.org/pdf/dec/pdp15/DEC-15-ODFFA-A_DOS15_SysMan.pdf
     """
 
-    ufd: "MasterFileDirectoryEntry"
+    ufd: "UserFileDirectory"
     # List of entries in the UFD block
     entries_list: t.List[DOS15DirectoryEntry]
     # Block number of this Master File Directory block
@@ -434,32 +535,50 @@ class UserFileDirectoryBlock(object):
     # Block number of the previous Master File Directory block
     previous_block_number: int = 0
 
-    def __init__(self, ufd: "MasterFileDirectoryEntry"):
+    def __init__(self, ufd: "UserFileDirectory"):
         self.ufd = ufd
 
     @classmethod
-    def read(cls, ufd: "MasterFileDirectoryEntry", block_number: int) -> "UserFileDirectoryBlock":
+    def read(cls, ufd: "UserFileDirectory", block_number: int) -> "UserFileDirectoryBlock":
         self = cls(ufd)
         self.block_number = block_number
         # Read the UFD block
         self.entries_list = []
         words = self.fs.read_words_block(block_number)
         for i, position in enumerate(range(0, len(words) - 8, 8)):
-            entry = DOS15DirectoryEntry.read(self, words, i, position)
-            if entry.is_active:
+            entry = DOS15DirectoryEntry.read(ufd, words, i, position)
+            if not entry.is_empty:
                 self.entries_list.append(entry)
         self.previous_block_number = words[-2]  # Pointer to previous MFD block
         self.next_block_number = words[-1]  # Pointer to next MFD block
         return self
+
+    def write(self) -> None:
+        """
+        Write all directory entries and the block links.
+        """
+        words: t.List[int] = []
+        for entry in self.entries_list:
+            words.extend(entry.to_words())
+        words = (words + [0] * WORDS_PER_BLOCK)[:WORDS_PER_LINKED_BLOCK]
+        words.extend([self.previous_block_number, self.next_block_number])
+        self.fs.write_words_block(self.block_number, words)
+
+    @property
+    def uic(self) -> str:
+        return self.ufd.uic
 
     @property
     def fs(self) -> "DOS15Filesystem":
         return self.ufd.fs
 
 
-class MasterFileDirectoryEntry:
+class UserFileDirectory:
     """
-    Master File Directory Entry in the MFD block
+    User File Directory
+    -------------------
+
+    Each UFD is named by a unique three character User Identification Code (UIC)
 
     Word
 
@@ -467,11 +586,14 @@ class MasterFileDirectoryEntry:
       0 | UIC                               |
         +-----------------------------------+
       1 | UFD First Block                   |
-        +-----------------------------------+
+        +-----------+-----------------------+
       2 | Prot. bit | UFD Entry Size        |
-        +-----------------------------------+
+        +-----------+-----------------------+
       3 | Unused                            |
         +-----------------------------------+
+
+    Pag 81
+    https://bitsavers.org/pdf/dec/pdp15/DEC-15-ODFFA-A_DOS15_SysMan.pdf
     """
 
     mfd_block: "MasterFileDirectoryBlock"
@@ -484,24 +606,23 @@ class MasterFileDirectoryEntry:
         self.mfd_block = mfd_block
 
     @classmethod
-    def read(
-        cls, mfd_block: "MasterFileDirectoryBlock", words: t.List[int], position: int
-    ) -> "MasterFileDirectoryEntry":
+    def read(cls, mfd_block: "MasterFileDirectoryBlock", words: t.List[int], position: int) -> "UserFileDirectory":
         """
         Read a Master File Directory entry from the MFD block
         """
         self = cls(mfd_block)
-        self.uic = sixbit_to_ascii(words[position])
+        self.uic = sixbit_to_ascii(words[position]).strip("\0")
         self.ufd_block_number = words[position + 1]
         self.protected = bool(words[position + 2] >> 17)
         self.ufd_entry_size = words[position + 2] & ~0o400000
         return self
 
-    def is_active(self) -> bool:
+    @property
+    def is_empty(self) -> bool:
         """
-        Check if the entry is active
+        Check if the entry is empty
         """
-        return self.ufd_block_number != 0o777777 and self.ufd_entry_size != 0
+        return self.uic == ""
 
     def read_ufd_blocks(self) -> t.Iterator["UserFileDirectoryBlock"]:
         """Read User File Directory blocks"""
@@ -511,6 +632,54 @@ class MasterFileDirectoryEntry:
             next_block_number = ufd_block.next_block_number
             yield ufd_block
 
+    def write(self, entries: t.Optional[t.List[DOS15DirectoryEntry]] = None) -> None:
+        """
+        Rewrite all directory entries, growing the UFD when necessary.
+        """
+        blocks = list(self.read_ufd_blocks())
+        if entries is None:
+            entries = [entry for block in blocks for entry in block.entries_list]
+        entries_per_block = (WORDS_PER_LINKED_BLOCK) // self.ufd_entry_size
+        required_blocks = max(1, math.ceil(len(entries) / entries_per_block))
+
+        # If the UFD is empty and there are entries to write, allocate a new block for the UFD
+        if self.ufd_block_number == 0o777777 and len(entries) > 0:
+            bitmap = self.fs.read_bitmap()
+            new_block_number = bitmap.allocate(1)[0]
+            new_block = UserFileDirectoryBlock(self)
+            new_block.block_number = new_block_number
+            new_block.previous_block_number = 0o777777
+            new_block.next_block_number = 0o777777
+            blocks.append(new_block)
+            bitmap.write()
+            # Update the MFD block with the new UFD block number
+            self.ufd_block_number = new_block_number
+            self.mfd_block.write()
+
+        # If there are not enough blocks to hold all entries, allocate new blocks and link them
+        if len(blocks) < required_blocks:
+            bitmap = self.fs.read_bitmap()
+            while len(blocks) < required_blocks:
+                new_block_number = bitmap.allocate(1)[0]
+                previous_block = blocks[-1]
+                previous_block.next_block_number = new_block_number
+                new_block = UserFileDirectoryBlock(self)
+                new_block.block_number = new_block_number
+                new_block.previous_block_number = previous_block.block_number
+                new_block.next_block_number = 0o777777
+                blocks.append(new_block)
+            bitmap.write()
+
+        # Write the entries to the blocks
+        for block_number, block in enumerate(blocks):
+            block.previous_block_number = blocks[block_number - 1].block_number if block_number else 0o777777
+            block.next_block_number = (
+                blocks[block_number + 1].block_number if block_number + 1 < len(blocks) else 0o777777
+            )
+            start = block_number * entries_per_block
+            block.entries_list = entries[start : start + entries_per_block]
+            block.write()
+
     @property
     def entries_list(self) -> t.Iterator[DOS15DirectoryEntry]:
         """
@@ -518,6 +687,17 @@ class MasterFileDirectoryEntry:
         """
         for ufd_block in self.read_ufd_blocks():
             yield from ufd_block.entries_list
+
+    def to_words(self) -> t.List[int]:
+        """
+        Dump the directory entry to words
+        """
+        return [
+            ascii_to_sixbit(self.uic),
+            self.ufd_block_number,
+            (int(self.protected) << 17) | self.ufd_entry_size,
+            0,
+        ]
 
     @property
     def fs(self) -> "DOS15Filesystem":
@@ -527,13 +707,15 @@ class MasterFileDirectoryEntry:
         """
         String representation of the Master File Directory entry
         """
-        return f"UIC: {self.uic:>3}  Block: {self.ufd_block_number:6d}  Protected: {'Y' if self.protected else 'N'}  Entry Size: {self.ufd_entry_size}"
+        uic = f"[{self.uic}]"
+        ufd_block_number = f"{self.ufd_block_number:>6}" if self.ufd_block_number != 0o777777 else "NON"
+        return f"{uic:<3}             {ufd_block_number:>6}        {self.protected:>5}"
 
 
 class MasterFileDirectoryBlock:
     """
     Master File Directory Block
-
+    ---------------------------
 
     Word
 
@@ -542,27 +724,43 @@ class MasterFileDirectoryBlock:
         +-----------------------------------+
       1 | Bad Allocation Table Block        |
         +-----------------------------------+
-      2 | SYS Block                         |
-        +-----------------------------------+
+      2 | System Block                      |
+        +------------+----------------------+
       3 | Entry Size | SAT Table Block      |
-        +-----------------------------------+
+        +------------+----------------------+
       4 | MFD Entries (4 words each)        |
         /                                   /
         |                                   |
+        +-----+-----------------------------+
+    252 | Chk | Spooler disk area           |   XVM-DOS only
+        +-----+-----------------------------+
+    253 | Chk | Spooler starting block      |   XVM-DOS only
+        +-----+-----------------------------+
+    254 | Previous MFD block                |
         +-----------------------------------+
+    255 | Next MFD block                    |
+        +-----------------------------------+
+
+    Pag 85
+    https://bitsavers.org/pdf/dec/pdp15/DEC-15-ODFFA-A_DOS15_SysMan.pdf
+
+    Pag 110
+    https://bitsavers.trailing-edge.com/pdf/dec/pdp15/XVM/DEC-XV-ODSAA-A-D_XVMdosSys.pdf
     """
 
     fs: "DOS15Filesystem"
     # List of entries in the MFD block
-    entries_list: t.List[MasterFileDirectoryEntry]
+    entries_list: t.List[UserFileDirectory]
     # Bad allocation table first block number
     bad_allocation_table: int
-    # SYSBLK first block number
-    sysblk: int
+    # System first block number
+    system_block_number: int
     # Storage Allocation Table first block number
-    storage_allocation_table: int
+    sat_block_number: int
     # Block number of this Master File Directory block
     block_number: int = 0
+    # MFD entry size
+    mfd_entry_size: int = 0
     # Block number of the next Master File Directory block
     next_block_number: int = 0
     # Block number of the previous Master File Directory block
@@ -581,24 +779,39 @@ class MasterFileDirectoryBlock:
             words = self.fs.read_words_block(RP_MFD_BLOCK)
             assert words[0] == 0o777777
         self.bad_allocation_table = words[1]
-        self.sysblk = words[2]
-        # MFD entry size in bits, plus the block number of the first submap
-        tmp = words[3]
-        # entry_size = tmp >> 15
-        self.storage_allocation_table = tmp & 0o377777
+        self.system_block_number = words[2]
+        # Word 3 contains the MFD entry size (3 bit) and the block number of the first submap
+        self.mfd_entry_size = 4  # words[3] >> 15
+        self.sat_block_number = words[3] & 0o377777
         self.entries_list = []
-        for i in range(4, len(words) - 4, 4):
-            entry = MasterFileDirectoryEntry.read(self, words, i)
-            if entry.is_active():
+        for i in range(4, len(words) - self.mfd_entry_size, self.mfd_entry_size):
+            entry = UserFileDirectory.read(self, words, i)
+            if not entry.is_empty:
                 self.entries_list.append(entry)
         self.previous_block_number = words[-2]  # Pointer to previous MFD block
         self.next_block_number = words[-1]  # Pointer to next MFD block
         return self
 
+    def write(self) -> None:
+        """
+        Write all directory entries and the block links.
+        """
+        words: t.List[int] = [0o777777, self.bad_allocation_table, self.system_block_number]
+        words.append((self.mfd_entry_size << 15) | self.sat_block_number)
+        for entry in self.entries_list:
+            words.extend(entry.to_words())
+        words = (words + [0] * WORDS_PER_BLOCK)[:WORDS_PER_LINKED_BLOCK]
+        words.extend([self.previous_block_number, self.next_block_number])
+        self.fs.write_words_block(self.block_number, words)
+
 
 class MasterFileDirectory:
     """
     Master File Directory
+    ---------------------
+
+    The Master File Directory (MFD) points to each User File Directory (UFD)
+    The MFD is a linked list of blocks, each containing a number of entries.
 
     Pag 81
     https://bitsavers.org/pdf/dec/pdp15/DEC-15-ODFFA-A_DOS15_SysMan.pdf
@@ -625,18 +838,165 @@ class MasterFileDirectory:
         return self
 
     @property
-    def entries_list(self) -> t.Iterator[MasterFileDirectoryEntry]:
+    def sat_block_number(self) -> int:
+        """
+        Return the Storage Allocation Table block number
+        """
+        return self.mfd_blocks[0].sat_block_number
+
+    @property
+    def entries_list(self) -> t.Iterator[UserFileDirectory]:
         """
         Iterate over all entries in the Master File Directory
         """
         for mfd_block in self.mfd_blocks:
             yield from mfd_block.entries_list
 
-    def get_entry(self, uic: str) -> t.Optional[MasterFileDirectoryEntry]:
+    def get_entry(self, uic: str) -> t.Optional[UserFileDirectory]:
         for entry in self.entries_list:
             if entry.uic == uic:
                 return entry
         return None
+
+
+class StorageAllocationTables:
+    """
+    Storage Allocation Tables (SAT)
+    -------------------------------
+
+    The disk handlers use a Storage Allocation Table, in order to distinguish
+    between allocated and free blocks.
+    If more than one physical block is required, the individual blocks are called Submaps.
+
+    Word
+
+        +-----------------------------------+
+      0 | Total blocks on disk              |
+        +-----------------------------------+
+      1 | Blocks in this submap             |
+        +-----------------------------------+
+      2 | Occupied blocks in this submap    |
+        +-----------------------------------+
+      3 | Bitmap                            |
+        / 250 words                         /
+        |                                   |
+        +-----------------------------------+
+    254 | Previous submap                   |
+        +-----------------------------------+
+    255 | Next submap                       |
+        +-----------------------------------+
+
+    Pag 85
+    https://bitsavers.org/pdf/dec/pdp15/DEC-15-ODFFA-A_DOS15_SysMan.pdf
+    """
+
+    fs: "DOS15Filesystem"
+    total_blocks: int  # Total number of blocks on disk
+
+    blocks: t.List[int]  # SAT Submap block numbers
+    bitmaps: t.List[int]
+
+    def __init__(self, fs: "DOS15Filesystem"):
+        self.fs = fs
+
+    @classmethod
+    def read(cls, fs: "DOS15Filesystem", first_block: int) -> "StorageAllocationTables":
+        """
+        Read the bitmap blocks
+        """
+        self = cls(fs)
+        self.bitmaps = []
+        self.blocks = []
+        next_block_number = first_block
+        while next_block_number != 0o777777:
+            # Read the submap
+            self.blocks.append(next_block_number)
+            words = self.fs.read_words_block(next_block_number)
+            if next_block_number == first_block:
+                self.total_blocks = words[0]
+            self.bitmaps.extend(words[SAT_BITMAP_FIRST_WORD:253])  # Bitmap words
+            next_block_number = words[-1]  # Pointer to next bitmap block
+        self.bitmaps = self.bitmaps[: math.ceil(self.total_blocks / 18)]
+        return self
+
+    def write(self) -> None:
+        """
+        Write the bitmap blocks
+        """
+        bitmap_position = 0
+        for block_number in self.blocks:
+            words = self.fs.read_words_block(block_number)
+            bitmap_words = min(len(self.bitmaps) - bitmap_position, SAT_ENTRIES_PER_BLOCK)
+            words[SAT_BITMAP_FIRST_WORD : SAT_BITMAP_FIRST_WORD + bitmap_words] = self.bitmaps[
+                bitmap_position : bitmap_position + bitmap_words
+            ]
+            self.fs.write_words_block(block_number, words)
+            bitmap_position += bitmap_words
+            if bitmap_position == len(self.bitmaps):
+                break
+
+    def is_free(self, bit_index: int) -> bool:
+        """
+        Check if a block is free
+        """
+        int_index = bit_index // 18
+        bit_position = bit_index % 18
+        bit_value = self.bitmaps[int_index]
+        return (bit_value & (1 << (17 - bit_position))) == 0
+
+    def set_used(self, bit_index: int) -> None:
+        """
+        Mark a block as used
+        """
+        int_index = bit_index // 18
+        bit_position = bit_index % 18
+        self.bitmaps[int_index] |= 1 << (17 - bit_position)
+
+    def set_free(self, bit_index: int) -> None:
+        """
+        Mark a block as free
+        """
+        int_index = bit_index // 18
+        bit_position = bit_index % 18
+        self.bitmaps[int_index] &= ~(1 << (17 - bit_position))
+
+    def allocate(self, size: int) -> t.List[int]:
+        """
+        Allocate blocks
+        """
+        blocks = []
+        for block in range(0, self.total_blocks):
+            if self.is_free(block):
+                self.set_used(block)
+                blocks.append(block)
+            if len(blocks) == size:
+                break
+        if len(blocks) < size:
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+        return blocks
+
+    def used(self) -> int:
+        """
+        Count the number of used blocks
+        """
+        used = 0
+        for block in self.bitmaps:
+            used += block.bit_count()
+        return used
+
+    def free(self) -> int:
+        """
+        Count the number of free blocks
+        """
+        return self.total_blocks - self.used()
+
+    def __str__(self) -> str:
+        free = self.free()
+        used = self.used()
+        return f"Free blocks: {free:<6} Used blocks: {used:<6}"
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, StorageAllocationTables) and self.bitmaps == other.bitmaps  # type: ignore
 
 
 class DOS15Filesystem(AbstractFilesystem):
@@ -649,15 +1009,15 @@ class DOS15Filesystem(AbstractFilesystem):
     |    File    |          | Bitmap |
     |  Directory |          +--------+
     +-----+------+         +-----------+    +-----------+
-          |                |   UFD     |    |    RIB    |    +---------+
-          +--------------> +   User    +--> | Retrieval +--> | Block 1 |
-                           |   File    |    |   Block   |    |         |
-                           | Directory |    +-----------+    +--^----+-+
-                           +-----------+                        |    |
-                                                                |    |
-                                                             +--+----.-+
-                                                             | Block 2 |
-                                                             +-^-----+-+
+          |                |   UFD 1   |    |   RIB 1   |    +---------+
+          +--------------> +    User   +--> | Retrieval +--> | Block 1 |
+                           |    File   |    |   Block   |    |         |
+                           | Directory |    +-^-------+-+    +--^----+-+
+                           +-^-------+-+      |       |         |    |
+                             |       |        |       |         |    |
+                           +-+-------v-+    +-+-------v-+    +--+----v-+
+                           |   UFD 2   |    |   RIB 2   |    | Block 2 |
+                           +-----------+    +-----------+    +-^-----+-+
 
     Pag 129
     https://bitsavers.org/pdf/dec/pdp15/PDP-15_System_Software_Handouts_1975.pdf
@@ -671,7 +1031,7 @@ class DOS15Filesystem(AbstractFilesystem):
         "protection_code",
     ]
 
-    uic: str = ""  # current User Identification Code (only for disk, not DECtape)
+    uic: str = ""  # current User Identification Code
     dev: BlockDevice18Bit
 
     def __init__(self, file_or_device: t.Union["AbstractFile", "AbstractDevice"]):
@@ -726,6 +1086,13 @@ class DOS15Filesystem(AbstractFilesystem):
         """
         self.dev.write_words_block(block_number, words)
 
+    def read_bitmap(self) -> StorageAllocationTables:
+        """
+        Read the Storage Allocation Table (SAT)
+        """
+        mfd = MasterFileDirectory.read(self)
+        return StorageAllocationTables.read(self, mfd.sat_block_number)
+
     def read_dir_entries(self, uic: t.Optional[str] = None) -> t.Iterator["DOS15DirectoryEntry"]:
         """
         Read directory entries
@@ -749,7 +1116,7 @@ class DOS15Filesystem(AbstractFilesystem):
     ) -> t.Iterator["DOS15DirectoryEntry"]:
         uic, pattern = dos15_split_fullname(fullname=pattern, wildcard=wildcard, uic=uic or self.uic)
         for entry in self.read_dir_entries(uic):
-            if entry.is_active and filename_match(entry.basename, pattern, wildcard):
+            if (not entry.is_empty) and filename_match(entry.basename, pattern, wildcard):
                 yield entry
 
     def get_file_entry(self, fullname: str) -> DOS15DirectoryEntry:
@@ -769,12 +1136,62 @@ class DOS15Filesystem(AbstractFilesystem):
         """
         Create a new file with a given length in number of blocks
         """
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
+        # If the file already exists, delete it
+        try:
+            entry = self.get_file_entry(fullname)
+            entry.delete()
+        except FileNotFoundError:
+            pass
+        uic, fullname = dos15_split_fullname(self.uic, fullname, wildcard=False)  # type: ignore
+        if not fullname:
+            raise OSError(errno.EINVAL, os.strerror(errno.EINVAL))
+        filename, extension = fullname.split(";", 1)
+        ufd = MasterFileDirectory.read(self).get_entry(uic)
+        if ufd is None:
+            raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), uic)
 
-    # def read_bitmap(self) -> ADSSBitmap:
-    #     """
-    #     Read the Directory Bitmap
-    #     """
+        # Allocate the data blocks and the RIB blocks
+        number_of_data_blocks: t.Optional[int] = metadata.get("number_of_blocks", None)  # type: ignore
+        if number_of_data_blocks is None:
+            block_size = (WORDS_PER_LINKED_BLOCK) * 3
+            number_of_data_blocks = max(1, math.ceil(size / block_size))
+        number_of_rib_blocks = math.ceil(number_of_data_blocks / SAT_ENTRIES_PER_BLOCK)
+        bitmap = self.read_bitmap()
+        allocated = bitmap.allocate(number_of_data_blocks + number_of_rib_blocks)
+        data_blocks = allocated[:number_of_data_blocks]
+        rib_blocks = allocated[number_of_data_blocks:]
+        bitmap.write()
+
+        # Initialize the data blocks
+        for index, block_number in enumerate(data_blocks):
+            content_words = [0] * (WORDS_PER_LINKED_BLOCK)
+            previous_block = data_blocks[index - 1] if index else 0o777777
+            next_block = data_blocks[index + 1] if index + 1 < len(data_blocks) else 0o777777
+            self.write_words_block(block_number, content_words + [previous_block, next_block])
+
+        # Initialize the RIB blocks
+        for index, block_number in enumerate(rib_blocks):
+            references = data_blocks[index * (WORDS_PER_BLOCK - 3) : (index + 1) * (WORDS_PER_BLOCK - 3)]
+            previous_block = rib_blocks[index - 1] if index else 0o777777
+            next_block = rib_blocks[index + 1] if index + 1 < len(rib_blocks) else 0o777777
+            words = [len(references)] + references
+            words += [0] * (WORDS_PER_LINKED_BLOCK - len(words))
+            words += [previous_block, next_block]
+            self.write_words_block(block_number, words)
+
+        # Update the UFD with the new entry
+        entry = DOS15DirectoryEntry(ufd)
+        entry.file_number = max((item.file_number for item in ufd.entries_list), default=-1) + 1
+        entry.filename = filename
+        entry.extension = extension
+        entry.block_number = data_blocks[0]
+        entry.length = number_of_data_blocks
+        entry.rib = rib_blocks[0]
+        entry.rib_position = 0
+        entry.raw_creation_date = date_to_dos15((metadata or {}).get("creation_date", date.today()))
+        entry.protection_code = (metadata or {}).get("protection_code", 0)
+        ufd.write(list(ufd.entries_list) + [entry])
+        return entry
 
     def write_bytes(
         self,
@@ -784,7 +1201,20 @@ class DOS15Filesystem(AbstractFilesystem):
         metadata: t.Optional[t.Dict[str, t.Any]] = None,
         file_mode: t.Optional[str] = None,
     ) -> None:
-        raise OSError(errno.EROFS, os.strerror(errno.EROFS))
+        """
+        Write bytes to a file, creating it if necessary
+        """
+        metadata = metadata or {}
+        file_mode = file_mode or IMAGE
+        blocks_content = list(encode_block_format(content, file_mode, words_per_block=WORDS_PER_LINKED_BLOCK))
+        metadata["number_of_blocks"] = len(blocks_content)
+        # Create the file entry
+        entry = self.create_file(fullname, len(content), metadata)
+        assert entry.get_length() == len(blocks_content)
+        # Write the file content
+        with entry.open() as f:
+            for i, block_content in enumerate(blocks_content):
+                f.write_words_block(block_content, i)
 
     def isdir(self, fullname: str) -> bool:
         return False
@@ -792,101 +1222,123 @@ class DOS15Filesystem(AbstractFilesystem):
     def show_accounts(self, volume_id: str, options: t.Dict[str, bool]) -> None:
         """
         Listing of all UIC
+
+        For each UFD entry, display the following information:
+        - UFD identifier
+        - Number of first device block occupied by ufd (octal)
+        - Protected (0=protected, 1=unprotected)
+        - Number of files in the UFD (octal)
+        - Number of blocks occupied by the files in the UFD (octal)
+
+        Pag 33
+        https://bitsavers.org/pdf/dec/pdp15/DEC-15-UPIPA-A-D_PIP_DOS_Monitor_Utility_Program_197408.pdf
         """
-        dt = date.today().strftime('%y-%b-%d').upper()
-        sys.stdout.write("UIC\n\n")
-        sys.stdout.write(f"     {dt}\n")
-        sys.stdout.write(" MFD DIRECTORY LISTING)\n")
+        buf = io.StringIO()
         mfd = MasterFileDirectory.read(self)
+        total_files = 0
+        total_blocks = 0
         for ufd in mfd.entries_list:
-            sys.stdout.write(f"{ufd.uic} {ufd}\n")
+            block_number = f"{ufd.ufd_block_number:o}" if ufd.ufd_block_number != 0o777777 else "NON"
+            protected = "1" if ufd.protected else "0"
+            files = 0
+            blocks = 0
+            for entry in ufd.entries_list:
+                if not entry.is_empty:
+                    files += 1
+                    blocks += entry.get_length()
+            buf.write(f" {ufd.uic} {block_number:>6}({protected}) {files:>6o}{blocks:>6o}\n")
+            total_files += files
+            total_blocks += blocks
+
+        bitmap = self.read_bitmap()
+        entries = list(self.filter_entries_list("*", uic="BNK", wildcard=True))
+        used = sum(entry.get_length() for entry in entries if not entry.is_empty)
+
+        dt = date.today().strftime('%y-%b-%d').upper()
+        sys.stdout.write(f"     {dt}\n")
+        sys.stdout.write(" MFD DIRECTORY LISTING\n")
+        sys.stdout.write(f" {bitmap.free():>6o} FREE BLKS\n")
+        sys.stdout.write(f" {total_files:>6o} USER FILES\n")
+        sys.stdout.write(f" {total_blocks:>6o} USER BLKS\n")
+        sys.stdout.write(buf.getvalue())
 
     def dir(self, volume_id: str, pattern: t.Optional[str], options: t.Dict[str, bool]) -> None:
         """
-            10-AUG-71
-        MFD DIRECTORY LISTING
-          5753 FREE BLKS
-            47 USER FILES
-           612 USER BLKS
-        SCR    115(0)      6   316
-        BLD    215(0)     14    23
+        For each file, display the following information:
+        - Filename and extension
+        - Number of blocks in the file (octal)
+        - Creation date (dd-mmm-yy)
 
-             06-JAN-79
-         DIRECTORY LISTING  (REN)
-           6133 FREE BLKS
-              6 USER FILES
-             26 USER BLKS
+        Pag 32
+        https://bitsavers.org/pdf/dec/pdp15/DEC-15-UPIPA-A-D_PIP_DOS_Monitor_Utility_Program_197408.pdf
         """
-        if options.get("uic"):
-            # Listing of all UIC
-            self.show_accounts(volume_id, options)
-            return
-
         uic, pattern = dos15_split_fullname(fullname=pattern, wildcard=True, uic=self.uic)
         entries = list(self.filter_entries_list(pattern, uic=uic, wildcard=True))
         if not entries:
             raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), pattern)
-        if not options.get("brief"):
-            dt = date.today().strftime('%y-%b-%d').upper()
-            used = sum(entry.get_length() for entry in entries if entry.is_active)
-            sys.stdout.write(f"     {dt}\n")
-            sys.stdout.write(f" DIRECTORY LISTING  ({uic})\n")
-            sys.stdout.write(f" {len(entries):>6o} USER FILES\n")
-            sys.stdout.write(f" {used:>6o} USER BLKS\n")
+        bitmap = self.read_bitmap()
+        dt = date.today().strftime('%y-%b-%d').upper()
+        used = sum(entry.get_length() for entry in entries if not entry.is_empty)
+        sys.stdout.write(f"     {dt}\n")
+        sys.stdout.write(f" DIRECTORY LISTING  ({uic})\n")
+        sys.stdout.write(f" {bitmap.free():>6o} FREE BLKS\n")
+        sys.stdout.write(f" {len(entries):>6o} USER FILES\n")
+        sys.stdout.write(f" {used:>6o} USER BLKS\n")
+
         for x in entries:
-            if x.is_active:
-                if options.get("brief"):
-                    sys.stdout.write(f"{x.filename:<6};{x.extension:<3}\n")
-                else:
-                    creation_date = x.creation_date and x.creation_date.strftime("%d-%b-%y").upper() or ""
-                    sys.stdout.write(f" {x.filename:<6} {x.extension:<3}  {x.length:>6o}  {creation_date}\n")
-        # if not options.get("brief"):
-        #     bitmap = self.read_bitmap()
-        #     sys.stdout.write(f"{bitmap.free():<4o} FREE BLOCKS\n")
+            if not x.is_empty:
+                creation_date = x.creation_date and x.creation_date.strftime("%d-%b-%y").upper() or ""
+                sys.stdout.write(f" {x.filename:<6} {x.extension:<3}  {x.length:>6o}  {creation_date}\n")
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
-        # if options.get("bitmap"):
-        #     # Display the bitmap
-        #     file_number = int(arg) if arg and arg.isdigit() else None
-        #     bitmap = ADSSBitmap.read(self, file_number)
-        #     for i in range(0, bitmap.total_bits):
-        #         sys.stdout.write(f"{i:>4d} {'[ ]' if bitmap.is_free(i) else '[X]'}  ")
-        #         if i % 16 == 15:
-        #             sys.stdout.write("\n")
-        #     sys.stdout.write(f"\nUsed blocks: {bitmap.used()}\n")
-        # elif arg:
-        if arg:
-            # Display the file entry
-            entries = self.filter_entries_list(arg, wildcard=True)
-            for entry in entries:
-                sys.stdout.write(f"File number:              {entry.file_number}\n")
-                sys.stdout.write(f"Filename:                 {entry.filename}\n")
-                sys.stdout.write(f"Extension:                {entry.extension}\n")
-                sys.stdout.write(f"Raw data link:            {entry.raw_data_link:06o}\n")
-                sys.stdout.write(f"Active:                   {'Y' if entry.is_active else 'N'}\n")
-                sys.stdout.write(f"First block number:       {entry.block_number}\n")
-                sys.stdout.write(f"Size:                     {entry.get_length()}\n")
-                sys.stdout.write(f"RIB:                      {entry.retrieval_information_block}\n")
-                sys.stdout.write(f"RIB position:             {entry.rib_position}\n")
-                sys.stdout.write(f"Creation date:            {entry.creation_date}\n")
-                sys.stdout.write(f"Protection code:          {entry.protection_code}\n")
-                blocks = str(list(entry.get_blocks()))
-                sys.stdout.write(f"Blocks:                   {blocks}\n")
-                sys.stdout.write("\n")
+        if options.get("bitmap"):
+            # Display the bitmap
+            bitmap = self.read_bitmap()
+            for i in range(0, bitmap.total_blocks):
+                sys.stdout.write(f"{i:>4d} {'[ ]' if bitmap.is_free(i) else '[X]'}  ")
+                if i % 16 == 15:
+                    sys.stdout.write("\n")
+            sys.stdout.write(f"\n\nUsed blocks: {bitmap.used()}\n")
+            sys.stdout.write(f"Free blocks: {bitmap.free()}\n")
+        elif arg:
+            uic, fullname = dos15_split_fullname(self.uic, arg, wildcard=False)
+            if not fullname:
+                mfd = MasterFileDirectory.read(self)
+                ufd = mfd.get_entry(uic)
+                if ufd:
+                    sys.stdout.write(f"UIC:                      {ufd.uic}\n")
+                    sys.stdout.write(f"First block number:       {ufd.ufd_block_number}\n")
+                    sys.stdout.write(f"Protection code:          {ufd.protected}\n")
+                    self.examine(f"[{ufd.uic}]*;*", options)
+            else:
+                # Display the file entry
+                entries = self.filter_entries_list(arg, wildcard=True)
+                for entry in entries:
+                    sys.stdout.write(f"File number:              {entry.file_number}\n")
+                    sys.stdout.write(f"Filename:                 {entry.filename}\n")
+                    sys.stdout.write(f"Extension:                {entry.extension}\n")
+                    sys.stdout.write(f"UIC:                      {entry.uic}\n")
+                    sys.stdout.write(f"Active:                   {'N' if entry.is_empty else 'Y'}\n")
+                    sys.stdout.write(f"First block number:       {entry.block_number}\n")
+                    sys.stdout.write(f"Size:                     {entry.get_length()} blocks\n")
+                    sys.stdout.write(f"RIB:                      {entry.rib}\n")
+                    sys.stdout.write(f"RIB position:             {entry.rib_position}\n")
+                    sys.stdout.write(f"Creation date:            {entry.creation_date}\n")
+                    sys.stdout.write(f"Protection code:          {entry.protection_code}\n")
+                    blocks = str(list(entry.get_blocks()))
+                    sys.stdout.write(f"Blocks:                   {blocks}\n")
+                    sys.stdout.write("\n")
         else:
             # Display the directory entries
-            sys.stdout.write("Num   Filename  Data link Block  Size  Date\n")
-            sys.stdout.write("---   --------  --------- -----  ----  ----\n")
+            sys.stdout.write("Filename           Block   Size   Prt    RIB RIB pos Creation Date Active\n")
+            sys.stdout.write("--------           -----   ----   ---    --- ------- ------------- ------\n")
             full = bool(options.get("full", False))
-            for entry in self.read_dir_entries():
-                if full or entry.is_active:
-                    block_number = f"{entry.block_number:4d}" if entry.is_active else "-"
-                    length = f"{entry.get_length():4d}" if entry.is_active else "-"
-                    sys.stdout.write(
-                        f"{entry.file_number:>2}  {entry.filename:>6};{entry.extension:<3}  "
-                        f"{entry.raw_data_link:06o} {block_number:>8}  {length:>4}  "
-                        f"{entry.creation_date}\n"
-                    )
+            mfd = MasterFileDirectory.read(self)
+            for ufd in mfd.entries_list:
+                sys.stdout.write(f"{ufd}\n")
+                for entry in ufd.entries_list:
+                    if full or not entry.is_empty:
+                        sys.stdout.write(f"{entry}\n")
 
     def dump(
         self,

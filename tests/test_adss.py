@@ -9,12 +9,15 @@ from xferx.pdp15.adssfs import (
     ADSSDirectory,
     ADSSDirectoryEntry,
     ADSSFilesystem,
-    ascii_to_five_seven,
-    decode_block_format,
-    encode_block_format,
-    five_seven_to_ascii,
     oct_dump,
 )
+from xferx.pdp15.iops import (
+    ascii_to_five_seven,
+    five_seven_to_ascii,
+    decode_block_format,
+    encode_block_format,
+)
+
 from xferx.shell import Shell
 
 DSK = "tests/dsk/adss.dtp"
