@@ -60,6 +60,7 @@ from .interdata.os32tapefs import OS32TapeFilesystem
 from .gzip_file import GzipFile
 from .fat.fat12 import FAT12Filesystem
 from .fat.fat8fs import FAT8Filesystem
+from .linc.lap6fs import LAP6Filesystem
 
 __all__ = [
     "Volumes",
@@ -104,6 +105,7 @@ FILESYSTEMS: t.Dict[str, t.Type[AbstractFilesystem]] = {
     "tops10": TOPS10Filesystem,
     "fat8": FAT8Filesystem,
     "fat12": FAT12Filesystem,
+    "lap6": LAP6Filesystem,
 }
 
 

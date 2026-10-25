@@ -387,18 +387,6 @@ Revised:     {files11_to_date(self.rvdt, self.rvti)}
 Expires:     {files11_to_date(self.exdt) if self.exdt[0] != 0 else '<None specified>'}
 Linkcount:   {len(self.retrieval_pointers)}
 File organization:  {"Sequential" if self.rtyp == 0 else "Indexed"}
-Shelved state:      Online
-Caching attribute:  Writethrough
-File attributes:    Allocation: 9, Extend: 0, Global buffer count: 0, No version limit
-Record format:      Variable length, maximum 255 bytes, longest 10 bytes See note #1
-Record attributes:  Carriage return carriage control See note #2
-RMS attributes:     None
-Journaling enabled: None
-File protection:    System:RWED, Owner:RWED, Group:RWED, World:RWE
-Access Cntrl List:  None
-Client attributes:  None
-
-Total of 1 file, 1/9 blocks.
 """
 
 
