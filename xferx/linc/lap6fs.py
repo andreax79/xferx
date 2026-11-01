@@ -23,6 +23,7 @@ import io
 import os
 import re
 import sys
+import struct
 import typing as t
 from datetime import date
 
@@ -41,7 +42,17 @@ DIR_ENTRY_SIZE = 8  # Directory entry size (words)
 UNUSED = 0o5757
 UNUSED_ENTRY = [UNUSED] * DIR_ENTRY_SIZE  # An unused entry segment has 0o5757 in all 8 words
 FILENAME_LENGTH = 8  # Filename length (characters)
-BLOCK_SIZE_BYTES = 384  # Block size (in bytes)
+MAX_BLOCKS = 512  # Maximum number of blocks (in blocks)
+INDEX_BLOCKS = 2  # Index blocks (in blocks)
+
+STANDARD_LOWER_FILE_AREA = 0o000  # Lower file area start (block number)
+STANDARD_LOWER_FILE_AREA_END = 0o267  # Lower file area end (block number)
+STANDARD_UNUSED_BLOCK = 0o270  # Unused block start (block number)
+STANDARD_LAP6_BLOCK = 0o300  # LAP6 block start (block number)
+STANDARD_WORKING_AREA = 0o350  # Working area start (block number)
+STANDARD_INDEX_BLOCK = 0o426  # Index block number (in blocks)
+STANDARD_UPPER_FILE_AREA = 0o430  # Upper file area start (block number)
+STANDARD_UPPER_FILE_AREA_END = 0o777  # Upper file area end (block number)
 
 MANUSCRIPT_FORK = "M"  # Text files
 BINARY_FORK = "B"  # Binary files
@@ -50,7 +61,7 @@ BINARY_FORK = "B"  # Binary files
 # LAP6 Keyboard Code: 6-bit code -> character
 #
 # LAP6 HANDBOOK, Pag 34
-# https://ftpmirror.your.org/pub/misc/bitsavers/pdf/washingtonUniversity/linc/LINC_Reference_Manuals/LINC_Vol_16_Section_3_LAP6_Handbook_May67.pdf
+# https://bitsavers.org/pdf/washingtonUniversity/linc/LINC_Reference_Manuals/LINC_Vol_16_Section_3_LAP6_Handbook_May67.pdf
 
 LAP6_CHARSET: dict[int, bytes] = {
     0o00: b"0",
@@ -153,18 +164,7 @@ def from_12bit_words_to_bytes(words: list[int], file_mode: str = ASCII) -> bytes
     Convert 12bit words to bytes
     """
     if file_mode == IMAGE:
-        result = bytearray()
-        for i in range(0, len(words), 2):
-            chr1 = words[i]
-            try:
-                chr2 = words[i + 1]
-            except IndexError:
-                chr2 = 0
-            chr3 = ((chr2 >> 8) & 0o17) | ((chr1 >> 4) & 0o360)
-            result.append(chr1 & 0xFF)
-            result.append(chr2 & 0xFF)
-            result.append(chr3 & 0xFF)
-        return bytes(result)
+        return struct.pack(f"<{len(words)}H", *words)
     else:
         return b"".join([lap6_word_to_ascii(x) for x in words])
 
@@ -175,18 +175,8 @@ def from_bytes_to_12bit_words(byte_data: t.Union[bytes, bytearray], file_mode: s
     """
     words = []
     if file_mode == IMAGE:
-        for i in range(0, len(byte_data), 3):
-            chr1 = byte_data[i] & 0xFF
-            try:
-                chr2 = byte_data[i + 1] & 0xFF
-            except IndexError:
-                chr2 = 0
-            try:
-                chr3 = byte_data[i + 2] & 0xFF
-            except IndexError:
-                chr3 = 0
-            words.append(chr1 | ((chr3 & 0o360) << 4))
-            words.append(chr2 | ((chr3 & 0o17) << 8))
+        len_words = len(byte_data) // 2
+        return [x & 0o7777 for x in struct.unpack(f"<{len_words}H", byte_data)]
     else:
         for i in range(0, len(byte_data), 2):
             chr1 = byte_data[i] & 0xFF
@@ -195,6 +185,24 @@ def from_bytes_to_12bit_words(byte_data: t.Union[bytes, bytearray], file_mode: s
             except IndexError:
                 chr2 = 0
             words.append(ascii_to_lap6_word(bytes([chr1, chr2])))
+    return words
+
+
+def encode_lap6_file(content: t.Union[bytes, bytearray], fork: str) -> t.List[int]:
+    """
+    Encode the file content into 12-bit words for the specified fork type.
+    """
+    if fork == BINARY_FORK:
+        data = bytes(content)
+        if len(data) % 2:
+            data += b"\0"
+        return from_bytes_to_12bit_words(data, IMAGE)
+
+    words = [0o2065, 0o5712]
+    for offset in range(0, len(content), 2):
+        words.append(ascii_to_lap6_word(bytes(content[offset : offset + 2])))
+    if len(content) % 2 == 0:
+        words.append(0o7777)
     return words
 
 
@@ -211,8 +219,10 @@ def oct_dump(words: t.List[int], words_per_line: int = 8) -> None:
 
 class LAP6File(AbstractFile):
     entry: "LAP6Path"
-    file_mode: str
-    fork: str
+    file_mode: str  # file mode: "ASCII" or "IMAGE"
+    fork: str  # fork type: "M" for manuscript, "B" for binary
+    length: int  # fork's length in blocks
+    first_block_number: int  # fork's first block number
 
     def __init__(self, entry: "LAP6Path", file_mode: t.Optional[str] = None, fork: t.Optional[str] = None):
         self.entry = entry
@@ -221,12 +231,29 @@ class LAP6File(AbstractFile):
             self.file_mode = file_mode
         else:
             self.file_mode = IMAGE if self.fork == BINARY_FORK else ASCII
-        self.size = entry.get_length(self.fork) * BLOCK_SIZE_BYTES
+        self.length = entry.get_length(self.fork)
+        self.first_block_number = self.entry.get_first_block_number(self.fork)
 
     @property
     def name(self) -> str:
         """Final path component"""
         return self.entry.name
+
+    def read_words_block(self, block_number: int) -> t.List[int]:
+        """
+        Read a block as 256 12bit words
+        """
+        return self.entry.fs.read_words_block(block_number + self.first_block_number)
+
+    def write_words_block(
+        self,
+        block_number: int,
+        words: t.List[int],
+    ) -> None:
+        """
+        Write 256 12bit words as a block
+        """
+        self.entry.fs.write_words_block(block_number + self.first_block_number, words)
 
     def read_block(
         self,
@@ -237,22 +264,12 @@ class LAP6File(AbstractFile):
         Read block(s) of data from the file
         """
         if number_of_blocks == READ_FILE_FULL:
-            number_of_blocks = self.entry.get_length(self.fork)
-        if (
-            self.closed
-            or block_number < 0
-            or number_of_blocks < 0
-            or block_number + number_of_blocks > self.entry.get_length(self.fork)
-        ):
+            number_of_blocks = self.length
+        if self.closed or block_number < 0 or number_of_blocks < 0 or block_number + number_of_blocks > self.length:
             raise OSError(errno.EIO, os.strerror(errno.EIO))
         data = bytearray()
-        if self.fork == BINARY_FORK:
-            first_block_number = self.entry.binary_block_number
-        else:
-            first_block_number = self.entry.manuscript_block_number
         for i in range(number_of_blocks):
-            block_position = block_number + first_block_number + i
-            words = self.entry.fs.read_words_block(block_position)
+            words = self.read_words_block(i)
             t = from_12bit_words_to_bytes(words, self.file_mode)
             data.extend(t)
         return bytes(data)
@@ -266,20 +283,11 @@ class LAP6File(AbstractFile):
         """
         Write block(s) of data to the file
         """
-        if (
-            self.closed
-            or block_number < 0
-            or number_of_blocks < 0
-            or block_number + number_of_blocks > self.entry.get_length(self.fork)
-        ):
+        if self.closed or block_number < 0 or number_of_blocks < 0 or block_number + number_of_blocks > self.length:
             raise OSError(errno.EIO, os.strerror(errno.EIO))
-        if self.fork == BINARY_FORK:
-            first_block_number = self.entry.binary_block_number
-        else:
-            first_block_number = self.entry.manuscript_block_number
         for i in range(number_of_blocks):
-            block_position = block_number + first_block_number + i
-            data = buffer[i * BLOCK_SIZE_BYTES : (i + 1) * BLOCK_SIZE_BYTES]
+            block_position = block_number + self.first_block_number + i
+            data = buffer[i * BLOCK_SIZE : (i + 1) * BLOCK_SIZE]
             words = from_bytes_to_12bit_words(data, self.file_mode)
             self.entry.fs.write_words_block(block_position, words)
 
@@ -287,7 +295,7 @@ class LAP6File(AbstractFile):
         """
         Get file size in bytes
         """
-        return self.entry.get_size()
+        return self.length * self.get_block_size()
 
     def get_block_size(self) -> int:
         """
@@ -388,14 +396,23 @@ class LAP6Path(XFERXPath):
         """The logical parent"""
         return self.fs.get_root()
 
+    def get_first_block_number(self, fork: t.Optional[str] = None) -> int:
+        """
+        Get the first block number
+        """
+        if fork and fork.upper() == BINARY_FORK:
+            return self.binary_block_number if self.binary_block_number != UNUSED else 0
+        else:
+            return self.manuscript_block_number if self.manuscript_block_number != UNUSED else 0
+
     def get_length(self, fork: t.Optional[str] = None) -> int:
         """
         Get the length in blocks
         """
         if fork and fork.upper() == BINARY_FORK:
-            return self.binary_length
+            return self.binary_length if self.binary_block_number != UNUSED else 0
         else:
-            return self.manuscript_length
+            return self.manuscript_length if self.manuscript_block_number != UNUSED else 0
 
     def get_size(self, fork: t.Optional[str] = None) -> int:
         """
@@ -407,13 +424,64 @@ class LAP6Path(XFERXPath):
         """
         Get file block size in bytes
         """
-        return BLOCK_SIZE_BYTES
+        return BLOCK_SIZE
 
     def open(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> LAP6File:
         """
         Open a file
         """
         return LAP6File(self, file_mode, fork)
+
+    def delete(self) -> bool:
+        """Delete this file and release both of its forks."""
+        index = self.fs.get_root()
+        words = index.read_words()
+        name = lap6_canonical_filename(self.name, wildcard=False)
+        for position in range(DIR_ENTRY_SIZE, len(words), DIR_ENTRY_SIZE):
+            entry = LAP6Path.read(self.fs, words, position)
+            if entry.name == name:
+                words[position : position + DIR_ENTRY_SIZE] = UNUSED_ENTRY
+                index.write_words(words)
+                return True
+        raise FileNotFoundError(errno.ENOENT, os.strerror(errno.ENOENT), self.name)
+
+    def read_bytes(self, file_mode: t.Optional[str] = None, fork: t.Optional[str] = None) -> bytes:
+        """Get the content of the file"""
+        if file_mode is None:
+            if fork and fork.upper() == BINARY_FORK:
+                file_mode = IMAGE
+                fork = BINARY_FORK
+            else:
+                file_mode = ASCII
+                fork = MANUSCRIPT_FORK
+        if fork is None:
+            if file_mode == IMAGE:
+                fork = BINARY_FORK
+            else:
+                fork = MANUSCRIPT_FORK
+        # Read the file content as 12-bit words
+        with self.open(fork=fork) as f:
+            words = []
+            for i in range(f.length):
+                words.extend(f.read_words_block(i))
+        if file_mode == IMAGE:
+            return from_12bit_words_to_bytes(words, IMAGE)
+        # LAP6 Manuscript structure
+        # - The first word contains the number 0o2065
+        # - The second word contains 0o5712
+        # - The last half-word of the manuscript contains 77
+        # LAP6 HANDBOOK, Pag 39
+        # https://bitsavers.org/pdf/washingtonUniversity/linc/LINC_Reference_Manuals/LINC_Vol_16_Section_3_LAP6_Handbook_May67.pdf
+        if words[0] != 0o2065:
+            raise OSError(errno.EIO, f"Invalid LAP6 manuscript: first word is {words[0]:06o} instead of 02065")
+        if words[1] != 0o5712:
+            raise OSError(errno.EIO, f"Invalid LAP6 manuscript: second word is {words[1]:06o} instead of 05712")
+        data = from_12bit_words_to_bytes(words[2:], ASCII)
+        # Cut the data at the "\0" (0o77 converted to ASCII)
+        end_index = data.rfind(b"\0")
+        if end_index != -1:
+            data = data[:end_index]
+        return data
 
     def examine(self) -> str:
         """
@@ -503,16 +571,34 @@ class LAP6Index(XFERXPath):
         Iterate over the entries in the index
         """
         pattern = lap6_canonical_filename(pattern, wildcard=wildcard) if pattern else None
-        words = self.fs.read_words_block(self.fs.index_block_number) + self.fs.read_words_block(
-            self.fs.index_block_number + 1
-        )
-        if words[0:DIR_ENTRY_SIZE] != UNUSED_ENTRY:
-            raise OSError(errno.EIO, "Invalid LAP6 Index")
+        words = self.read_words()
         for i in range(1, len(words) // DIR_ENTRY_SIZE):
             entry = LAP6Path.read(self.fs, words, i * DIR_ENTRY_SIZE)
             if include_all or not entry.is_empty:
                 if pattern is None or filename_match(entry.name, pattern, wildcard=wildcard):
                     yield entry
+
+    def read_words(self) -> t.List[int]:
+        """
+        Read the index blocks as a list of 12-bit words
+        """
+        index_block_number = self.fs.index_block_number
+        words = self.fs.read_words_block(index_block_number) + self.fs.read_words_block(index_block_number + 1)
+        if words[:DIR_ENTRY_SIZE] != UNUSED_ENTRY:
+            raise OSError(errno.EIO, "Invalid LAP6 Index")
+        return words
+
+    def write_words(self, words: t.List[int]) -> None:
+        """
+        Write the index blocks as a list of 12-bit words
+        """
+        index_block_number = self.fs.index_block_number
+        words_per_block = self.fs.dev.block_size_words
+        for offset in range(0, len(words), words_per_block):
+            self.fs.write_words_block(
+                index_block_number + offset // words_per_block,
+                words[offset : offset + words_per_block],
+            )
 
 
 class LAP6Filesystem(AbstractFilesystem):
@@ -528,10 +614,14 @@ class LAP6Filesystem(AbstractFilesystem):
             +-------------------+
         0   |                   | May be any length
             / Lower File area   /
+    0o267   |                   |
+            +-------------------+
+    0o270   |                   | 8 blocks
+            / Unused            /
             |                   |
             +-------------------+
     0o300   |                   | 50 blocks
-            / LAP6 / Unused     /
+            / LAP6              /
             |                   |
             +-------------------+
     0o350   |                   | May be any length
@@ -539,7 +629,7 @@ class LAP6Filesystem(AbstractFilesystem):
             |                   |
             +-------------------+
     0o426   | Index directory   | May be anywhere above the beginning of the working area
-            |                   |
+    0o427   |                   |
             +-------------------+
     0o430   |                   | May be any length
             / Upper File area   /
@@ -548,11 +638,17 @@ class LAP6Filesystem(AbstractFilesystem):
 
     LAP6 HANDBOOK, Pag 33, 41
     https://bitsavers.org/pdf/washingtonUniversity/linc/LINC_Reference_Manuals/LINC_Vol_16_Section_3_LAP6_Handbook_May67.pdf
+
+    Note on the SIMH tape format:
+    A plain image is 512 blocks of 256 words each (262144 bytes).
+    Extended images have 6 extra bytes at the end of the file, which are used to store
+    the block size, first forward block number, and first reverse block number.
     """
 
     fs_name = "lap6"
     fs_description = "LINC LAP6 Tape"
     fs_platforms = ["linc"]
+    fs_forks = [MANUSCRIPT_FORK, BINARY_FORK]
     fs_entry_metadata = []
 
     dev: BlockDevice12Bit
@@ -578,16 +674,242 @@ class LAP6Filesystem(AbstractFilesystem):
         Mount the LAP6 filesystem from a file
         """
         self = cls(file_or_dev, device_type)
-        number_of_blocks = self.dev.get_size() // BLOCK_SIZE
-        # Find the index block number
-        self.index_block_number = -1
-        for i in range(6, number_of_blocks, 8):
-            words = self.dev.read_words_block(i)
-            if words[0:8] == UNUSED_ENTRY:
-                self.index_block_number = i
+        dev_size = self.dev.get_size()
+        if dev_size == MAX_BLOCKS * BLOCK_SIZE:
+            number_of_blocks = MAX_BLOCKS
+        elif dev_size % BLOCK_SIZE == 6:
+            data = self.dev.read_block(dev_size // BLOCK_SIZE)
+            metadata_words = [x for x in struct.unpack_from("<hhh", data, 0)]
+            block_size = metadata_words[0]
+            forward_offset = -metadata_words[1]
+            reverse_offset = -metadata_words[2]
+            if block_size != BLOCK_SIZE // 2:
+                raise OSError(errno.EIO, f"Invalid block size: {block_size} (expected {BLOCK_SIZE // 2})")
+            if forward_offset < 0 or reverse_offset < 0:
+                raise OSError(errno.EIO, f"Invalid offset: {forward_offset}/{reverse_offset} (expected positive)")
+            if forward_offset != reverse_offset:
+                raise OSError(errno.EIO, f"Invalid offset: {forward_offset}/{reverse_offset} (expected equal)")
+            self.dev.offset = forward_offset * BLOCK_SIZE
+            number_of_blocks = (dev_size - 6) / BLOCK_SIZE - forward_offset - forward_offset
+            if number_of_blocks > MAX_BLOCKS:
+                number_of_blocks = MAX_BLOCKS
+        words = self.dev.read_words_block(STANDARD_INDEX_BLOCK)
+        if words[0:8] == UNUSED_ENTRY:
+            self.index_block_number = STANDARD_INDEX_BLOCK
+        else:
+            self.index_block_number = -1
+            for i in range(6, number_of_blocks, 8):
+                words = self.dev.read_words_block(i)
+                if words[0:8] == UNUSED_ENTRY:
+                    self.index_block_number = i
+                    break
+            if self.index_block_number == -1:
+                raise OSError(errno.EIO, "LAP6 Index not found")
+        return self
+
+    def get_file_areas(self) -> t.List[t.Tuple[int, int]]:
+        """
+        Get the file areas (start, end) in block numbers
+        """
+        if self.index_block_number == STANDARD_INDEX_BLOCK:
+            # Standard LAP6 layout
+            return [
+                (STANDARD_LOWER_FILE_AREA, STANDARD_LOWER_FILE_AREA_END),
+                (STANDARD_UPPER_FILE_AREA, STANDARD_UPPER_FILE_AREA_END),
+            ]
+        else:
+            # Non-standard LAP6 layout, the upper file area starts after the index blocks
+            return [
+                (self.index_block_number + INDEX_BLOCKS, STANDARD_UPPER_FILE_AREA_END),
+            ]
+
+    def allocate(
+        self,
+        number_of_blocks: int,
+        index_words: t.List[int],
+        ignored_name: t.Optional[str] = None,
+        ignored_fork: t.Optional[str] = None,
+    ) -> int:
+        """
+        Allocate a contiguous range of blocks for a new file, avoiding used blocks and the ignored entry.
+        Return the first block number of the allocated range.
+        """
+        # Read the index and collect all used blocks, except for the ignored entry
+        used: t.List[t.Tuple[int, int]] = []
+        for position in range(DIR_ENTRY_SIZE, len(index_words), DIR_ENTRY_SIZE):
+            entry = LAP6Path.read(self, index_words, position)
+            for fork in (MANUSCRIPT_FORK, BINARY_FORK):
+                if entry.name == ignored_name and fork == ignored_fork:
+                    continue
+                first_block = entry.manuscript_block_number if fork == MANUSCRIPT_FORK else entry.binary_block_number
+                length = entry.get_length(fork)
+                if first_block != UNUSED and length > 0:
+                    used.append((first_block, first_block + length - 1))
+        # Collect all gaps in the used blocks and find the best candidate for allocation
+        candidates: t.List[t.Tuple[int, bool, int, int]] = []
+        for area_start, area_end in self.get_file_areas():
+            is_upper: bool = area_start >= self.index_block_number
+            cursor = area_start
+            for used_start, used_end in sorted(used):
+                used_start = max(used_start, area_start)
+                used_end = min(used_end, area_end)
+                if used_end < cursor or used_start > area_end:
+                    continue
+                if used_start > cursor:
+                    gap_end = used_start - 1
+                    if gap_end - cursor + 1 >= number_of_blocks:
+                        if is_upper:
+                            distance = cursor - (self.index_block_number + INDEX_BLOCKS - 1)
+                        else:
+                            distance = self.index_block_number - gap_end
+                        candidates.append((distance, is_upper, cursor, gap_end))
+                cursor = max(cursor, used_end + 1)
+                if cursor > area_end:
+                    break
+            if cursor <= area_end and area_end - cursor + 1 >= number_of_blocks:
+                if is_upper:
+                    distance = cursor - (self.index_block_number + INDEX_BLOCKS - 1)
+                else:
+                    distance = self.index_block_number - area_end
+                candidates.append((distance, is_upper, cursor, area_end))
+        # Select the best candidate based on distance
+        if not candidates:
+            raise OSError(errno.ENOSPC, os.strerror(errno.ENOSPC))
+        _, is_upper, gap_start, gap_end = min(candidates)
+        if is_upper:
+            return gap_start
+        else:
+            return gap_end - number_of_blocks + 1
+
+    def create_file(
+        self,
+        fullname: str,
+        size: int,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
+    ) -> LAP6Path:
+        """
+        Create or replace one fork of a LAP6 file
+        """
+        try:
+            name = lap6_canonical_filename(fullname, wildcard=False)
+        except Exception:
+            raise OSError(errno.EINVAL, "Invalid LAP6 filename", fullname)
+        if not name:
+            raise OSError(errno.EINVAL, "Invalid LAP6 filename", fullname)
+
+        metadata = metadata or {}
+        fork = str(metadata.get("fork", MANUSCRIPT_FORK)).upper()
+        if fork not in (MANUSCRIPT_FORK, BINARY_FORK):
+            raise OSError(errno.EINVAL, f"Invalid LAP6 fork: {fork}", fullname)
+        requested_blocks = metadata.get("number_of_blocks", 0)
+        if not isinstance(requested_blocks, int) or requested_blocks < 0:
+            raise OSError(errno.EINVAL, "Invalid LAP6 allocation size", fullname)
+        number_of_blocks = max(1, requested_blocks, (size + BLOCK_SIZE - 1) // BLOCK_SIZE)
+
+        # Find the entry in the index or create a new one
+        index = self.get_root()
+        words = index.read_words()
+        entry: t.Optional[LAP6Path] = None
+        entry_position: t.Optional[int] = None
+        empty_position: t.Optional[int] = None
+        for position in range(DIR_ENTRY_SIZE, len(words), DIR_ENTRY_SIZE):
+            candidate = LAP6Path.read(self, words, position)
+            if candidate.name == name:
+                entry = candidate
+                entry_position = position
                 break
-        if self.index_block_number == -1:
-            raise OSError(errno.EIO, "LAP6 Index not found")
+            if candidate.is_empty and empty_position is None:
+                empty_position = position
+
+        # If the entry does not exist, create a new one in the first empty position
+        if entry is None:
+            if empty_position is None:
+                raise OSError(errno.ENOSPC, "LAP6 directory is full", fullname)
+            # Create a new entry
+            entry = LAP6Path(self)
+            entry.filename = name
+            entry.manuscript_block_number = UNUSED
+            entry.manuscript_length = 0
+            entry.binary_block_number = UNUSED
+            entry.binary_length = 0
+            entry_position = empty_position
+
+        # Allocate blocks for the specified fork and update the entry
+        old_block = entry.manuscript_block_number if fork == MANUSCRIPT_FORK else entry.binary_block_number
+        ignored_name = name if old_block != UNUSED else None
+        first_block = self.allocate(number_of_blocks, words, ignored_name, fork)
+        if fork == MANUSCRIPT_FORK:
+            entry.manuscript_block_number = first_block
+            entry.manuscript_length = number_of_blocks
+        else:
+            entry.binary_block_number = first_block
+            entry.binary_length = number_of_blocks
+
+        assert entry_position is not None
+        words[entry_position : entry_position + DIR_ENTRY_SIZE] = entry.to_words()
+        index.write_words(words)
+
+        initial_words = [0] * self.dev.block_size_words
+        if fork == MANUSCRIPT_FORK:
+            initial_words[:3] = [0o2065, 0o5712, 0o7777]
+        for block_offset in range(number_of_blocks):
+            self.write_words_block(first_block + block_offset, initial_words)
+        return entry
+
+    def delete_file(self, fullname: str) -> bool:
+        """
+        Remove a directory entry
+        """
+        return self.get_file_entry(fullname).delete()
+
+    def write_bytes(
+        self,
+        fullname: str,
+        content: t.Union[bytes, bytearray],
+        fork: t.Optional[str] = None,
+        metadata: t.Optional[t.Dict[str, t.Any]] = None,
+        file_mode: t.Optional[str] = None,
+    ) -> None:
+        """
+        Create a LAP6 fork and write its encoded contents
+        """
+        metadata = dict(metadata or {})
+        if fork is None:
+            fork = metadata.get("fork")
+        if fork is None:
+            fork = BINARY_FORK if file_mode == IMAGE else MANUSCRIPT_FORK
+        fork = fork.upper()
+        if fork not in (MANUSCRIPT_FORK, BINARY_FORK):
+            raise OSError(errno.EINVAL, f"Invalid LAP6 fork: {fork}", fullname)
+
+        words = encode_lap6_file(content, fork)
+        words_per_block = self.dev.block_size_words
+        number_of_blocks = max(1, (len(words) + words_per_block - 1) // words_per_block)
+        metadata["fork"] = fork
+        requested_blocks = metadata.get("number_of_blocks", 0)
+        if isinstance(requested_blocks, int):
+            metadata["number_of_blocks"] = max(number_of_blocks, requested_blocks)
+        else:
+            metadata["number_of_blocks"] = requested_blocks
+        entry = self.create_file(fullname, number_of_blocks * BLOCK_SIZE, metadata)
+        first_block = entry.get_first_block_number(fork)
+        words.extend([0] * (number_of_blocks * words_per_block - len(words)))
+        for block_offset in range(number_of_blocks):
+            start = block_offset * words_per_block
+            self.write_words_block(first_block + block_offset, words[start : start + words_per_block])
+
+    @classmethod
+    def initialize(
+        cls, file_or_dev: t.Union["AbstractFile", "AbstractDevice"], **kwargs: t.Union[bool, str]
+    ) -> "LAP6Filesystem":
+        """
+        Initialize a new LAP6 filesystem
+        """
+        self = cls(file_or_dev, kwargs.get("device_type", ""))
+        self.index_block_number = STANDARD_INDEX_BLOCK
+        empty_block = UNUSED_ENTRY * (self.dev.block_size_words // DIR_ENTRY_SIZE)
+        for block_number in range(INDEX_BLOCKS):
+            self.write_words_block(self.index_block_number + block_number, empty_block)
         return self
 
     def read_words_block(self, block_number: int) -> t.List[int]:
@@ -671,24 +993,36 @@ class LAP6Filesystem(AbstractFilesystem):
         for entry in self.get_root().iterdir(pattern=pattern):
             if entry.manuscript_block_number != UNUSED and entry.binary_block_number != UNUSED:
                 sys.stdout.write(
-                    f"{entry.name:<8}  M {entry.manuscript_block_number:>4} {entry.manuscript_length:>4}\n"
+                    f"{entry.name:<8}  M {entry.manuscript_block_number:>4o} {entry.manuscript_length:>4o}\n"
                 )
-                sys.stdout.write(f"{'':<8}  B {entry.binary_block_number:>4} {entry.binary_length:>4}\n")
+                sys.stdout.write(f"{'':<8}  B {entry.binary_block_number:>4o} {entry.binary_length:>4o}\n")
             elif entry.manuscript_block_number != UNUSED:
                 sys.stdout.write(
-                    f"{entry.name:<8}  M {entry.manuscript_block_number:>4} {entry.manuscript_length:>4}\n"
+                    f"{entry.name:<8}  M {entry.manuscript_block_number:>4o} {entry.manuscript_length:>4o}\n"
                 )
             elif entry.binary_block_number != UNUSED:
-                sys.stdout.write(f"{entry.name:<8}  B {entry.binary_block_number:>4} {entry.binary_length:>4}\n")
+                sys.stdout.write(f"{entry.name:<8}  B {entry.binary_block_number:>4o} {entry.binary_length:>4o}\n")
 
     def examine(self, arg: t.Optional[str], options: t.Dict[str, t.Union[bool, str]]) -> None:
         if arg:
             for entry in self.get_root().iterdir(pattern=arg):
                 sys.stdout.write(f"{entry.examine()}\n")
         else:
-            sys.stdout.write(f"Index block number: {self.index_block_number}\n\n")
-            sys.stdout.write("Filename  Manuscript   Binary\n")
-            sys.stdout.write("--------  ----------   ------\n")
+            sys.stdout.write(
+                f"Tape offset:     {self.dev.offset // BLOCK_SIZE}\n"
+                f"Index blocks:    {self.index_block_number:>3}-{self.index_block_number + 1:<3} "
+                f"(0o{self.index_block_number:o}-0o{self.index_block_number + 1:o})\n\n"
+                "File Areas\n"
+                "----------\n"
+            )
+            for area_start, area_end in self.get_file_areas():
+                label = "Upper" if area_start >= self.index_block_number else "Lower"
+                sys.stdout.write(f"{label:<7} {area_start:>3}-{area_end:<3} (0o{area_start:>03o}-0o{area_end:>03o})\n")
+            sys.stdout.write(
+                "\n"
+                "Filename  Manuscript   Binary\n"
+                "--------  ----------   ------\n"
+            )
             for entry in self.get_root().iterdir():
                 sys.stdout.write(f"{entry}\n")
 
@@ -706,15 +1040,13 @@ class LAP6Filesystem(AbstractFilesystem):
                 return
             if start is None:
                 start = 0
-            if end is None or end > entry.get_length() - 1:
-                end = entry.get_length() - 1
-            if fork == BINARY_FORK:
-                first_block_number = entry.binary_block_number
-            else:
-                first_block_number = entry.manuscript_block_number
+            if end is None or end > entry.get_length(fork) - 1:
+                end = entry.get_length(fork) - 1
+            first_block_number = entry.get_first_block_number(fork)
             for block_number in range(start, end + 1):
-                words = self.read_words_block(first_block_number + block_number)
-                sys.stdout.write(f"\nBLOCK NUMBER   {block_number:08}\n")
+                dev_block_numbeer = first_block_number + block_number
+                words = self.read_words_block(dev_block_numbeer)
+                sys.stdout.write(f"\nBLOCK NUMBER   {block_number:08}  ({dev_block_numbeer:08})\n")
                 oct_dump(words)
         else:
             if start is None:

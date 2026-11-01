@@ -103,7 +103,7 @@ def get_int_option(
     Get an integer option from the options dictionary
     """
     try:
-        value = int(options[key])
+        value = int(options[key], 0)  # type: ignore
         if value < 0:
             raise ValueError
         return value

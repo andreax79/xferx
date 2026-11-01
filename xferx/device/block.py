@@ -41,11 +41,13 @@ class BlockDevice(AbstractDevice):
     f: "AbstractFile"
     size: int  # Block device size, in bytes
     sector_size: int  # Sector size, in bytes
+    offset: int = 0  # Offset in bytes
 
-    def __init__(self, file: "AbstractFile", sector_size: int = BLOCK_SIZE):
+    def __init__(self, file: "AbstractFile", sector_size: int = BLOCK_SIZE, offset: int = 0):
         self.f = file
         self.size = self.f.get_size()
         self.sector_size = sector_size
+        self.offset = offset
 
     def read_block(
         self,
@@ -58,7 +60,7 @@ class BlockDevice(AbstractDevice):
         if self.sector_size == self.f.sector_size:
             return self.f.read_block(block_number, number_of_blocks)
         else:
-            position = block_number * self.sector_size
+            position = block_number * self.sector_size + self.offset
             self.f.seek(position)  # not thread safe...
             return self.f.read(number_of_blocks * self.sector_size)
 
@@ -76,7 +78,7 @@ class BlockDevice(AbstractDevice):
         if self.sector_size == self.f.sector_size:
             self.f.write_block(buffer[: number_of_blocks * self.sector_size], block_number, number_of_blocks)
         else:
-            position = block_number * self.sector_size
+            position = block_number * self.sector_size + self.offset
             self.f.seek(position)  # not thread safe...
             self.f.write(buffer[: number_of_blocks * self.sector_size])
 

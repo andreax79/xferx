@@ -40,7 +40,7 @@ XFERX is an utility for transferring files between various file systems.
 | Interdata OS/32 Backup Tape   | Yes               | Yes               | Yes               | Yes               | N/A               |
 | Microsoft Disk BASIC FAT8     | Yes               | Yes               | Yes               | No                | N/A               |
 | FAT12                         | Yes               | Yes               | Yes               | Yes               | Yes               |
-| LINC LAP-6                    | Yes               | No                | No                | No                | No                |
+| LINC LAP-6                    | Yes               | Yes               | Yes               | Yes               | N/A               |
 
 Installation
 ------------

@@ -208,7 +208,7 @@ class RXBlockDevice(BlockDevice):
             for i in range(0, number_of_blocks * BLOCK_SIZE // self.sector_size):
                 blkno = start_sector + i
                 position = rxfactr(blkno, self.sector_size)
-                self.f.seek(position)  # not thread safe...
+                self.f.seek(position + self.offset)  # not thread safe...
                 ret.append(self.f.read(self.sector_size))
             return b"".join(ret)
         else:
@@ -227,7 +227,7 @@ class RXBlockDevice(BlockDevice):
             for i in range(0, number_of_blocks * BLOCK_SIZE // self.sector_size):
                 blkno = start_sector + i
                 position = rxfactr(blkno, self.sector_size)
-                self.f.seek(position)  # not thread safe...
+                self.f.seek(position + self.offset)  # not thread safe...
                 self.f.write(buffer[i * self.sector_size : (i + 1) * self.sector_size])
         else:
             super().write_block(buffer, block_number, number_of_blocks)

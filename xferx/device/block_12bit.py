@@ -85,7 +85,7 @@ class BlockDevice12Bit(BlockDevice):
         data = bytearray()
         for i in range(block_number, block_number + number_of_blocks):
             position = i * self.block_size_words * BYTES_PER_WORD + self.block_offset_bytes
-            self.f.seek(position)
+            self.f.seek(position + self.offset)
             data += self.f.read(self.block_size_words * BYTES_PER_WORD)
         return bytes(data)
 
@@ -97,7 +97,7 @@ class BlockDevice12Bit(BlockDevice):
     ) -> None:
         for i in range(block_number, block_number + number_of_blocks):
             position = i * self.block_size_words * BYTES_PER_WORD + self.block_offset_bytes
-            self.f.seek(position)
+            self.f.seek(position + self.offset)
             self.f.write(buffer[: self.block_size_words * BYTES_PER_WORD])
             buffer = buffer[self.block_size_words * BYTES_PER_WORD :]
 
@@ -124,7 +124,7 @@ class DECtape12Bit(BlockDevice12Bit):
     ) -> bytes:
         data = bytearray()
         for i in range(number_of_blocks * DECTAPE_BLOCKS_PER_DEVICE_BLOCK):
-            self.f.seek(block_number * DECTAPE_BLOCK_SIZE * 4 + i)
+            self.f.seek(block_number * DECTAPE_BLOCK_SIZE * 4 + i + self.offset)
             data += self.f.read(BLOCK_SIZE // DECTAPE_BLOCKS_PER_DEVICE_BLOCK)
         return bytes(data)
 
@@ -135,7 +135,7 @@ class DECtape12Bit(BlockDevice12Bit):
         number_of_blocks: int = 1,
     ) -> None:
         for i in range(number_of_blocks * DECTAPE_BLOCKS_PER_DEVICE_BLOCK):
-            self.f.seek(block_number * DECTAPE_BLOCK_SIZE * 4 + i)
+            self.f.seek(block_number * DECTAPE_BLOCK_SIZE * 4 + i + self.offset)
             pos = i * BLOCK_SIZE // DECTAPE_BLOCKS_PER_DEVICE_BLOCK
             self.f.write(buffer[pos : pos + BLOCK_SIZE // DECTAPE_BLOCKS_PER_DEVICE_BLOCK])
 
@@ -156,7 +156,7 @@ class RXBlockDevice12Bit(BlockDevice12Bit):
         Read a sector from the disk image (for COS RX01 floppy)
         """
         position = cos_sector_position(sector, self.sector_size)
-        self.f.seek(position)
+        self.f.seek(position + self.offset)
         return self.f.read(self.sector_size)
 
     def write_sector(self, buffer: t.Union[bytes, bytearray], sector: int) -> None:
@@ -164,7 +164,7 @@ class RXBlockDevice12Bit(BlockDevice12Bit):
         Write a sector to the disk image (for COS RX01 floppy)
         """
         position = cos_sector_position(sector, self.sector_size)
-        self.f.seek(position)
+        self.f.seek(position + self.offset)
         self.f.write(buffer)
 
     def read_words_block(self, block_number: int) -> t.List[int]:
@@ -175,7 +175,7 @@ class RXBlockDevice12Bit(BlockDevice12Bit):
             # RX01/RX02 12-bit mode
             result = []
             for position in rxfactr_12bit(block_number, self.sector_size):
-                self.f.seek(position)
+                self.f.seek(position + self.offset)
                 data = self.f.read(self.sector_size)
                 result.extend(rx_extract_12bit_words(data, 0, self.sector_size))
             return result
@@ -201,7 +201,7 @@ class RXBlockDevice12Bit(BlockDevice12Bit):
             for i, position in enumerate(rxfactr_12bit(block_number, self.sector_size)):
                 words_position = i * words_per_sector
                 sector_data = rx_pack_12bit_words(words, words_position, self.sector_size)
-                self.f.seek(position)
+                self.f.seek(position + self.offset)
                 self.f.write(sector_data)
         else:
             # Non-RX mode, write as `block_size_words` 12-bit words
@@ -271,7 +271,7 @@ class COSRXBlockDevice12Bit(RXBlockDevice12Bit):
             for i, position in enumerate(rxfactr_12bit(block_number, self.sector_size)):
                 words_position = i * words_per_sector
                 sector_data = rx_pack_12bit_words(words, words_position, self.sector_size)
-                self.f.seek(position)
+                self.f.seek(position + self.offset)
                 self.f.write(sector_data)
         else:
             # Non-RX mode, write as `block_size_words` 12-bit words

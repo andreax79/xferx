@@ -133,7 +133,7 @@ class BlockDevice18Bit(BlockDevice):
         block_number: int = block.block_number if isinstance(block, BlockDirection) else block
         direction = block.direction if isinstance(block, BlockDirection) else Direction.FORWARD
         # Read the block
-        self.f.seek(block_number * self.words_per_block * BYTES_PER_WORD_18BIT)
+        self.f.seek(block_number * self.words_per_block * BYTES_PER_WORD_18BIT + self.offset)
         buffer = self.f.read(self.words_per_block * BYTES_PER_WORD_18BIT)
         if len(buffer) < self.words_per_block * BYTES_PER_WORD_18BIT:
             raise OSError(errno.EIO, os.strerror(errno.EIO))
@@ -158,6 +158,6 @@ class BlockDevice18Bit(BlockDevice):
         if direction == Direction.BACKWARD:
             words = [reverse_word(w) for w in reversed(words)]
         # Write the block
-        self.f.seek(block_number * self.words_per_block * BYTES_PER_WORD_18BIT)
+        self.f.seek(block_number * self.words_per_block * BYTES_PER_WORD_18BIT + self.offset)
         buffer = struct.pack(f"{self.words_per_block}I", *words)
         self.f.write(buffer)

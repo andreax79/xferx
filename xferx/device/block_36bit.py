@@ -58,7 +58,7 @@ class BlockDevice36Bit(BlockDevice):
     def read_block(self, block_number: int, number_of_blocks: int = 1) -> bytes:
         if block_number < 0 or number_of_blocks < 0:
             raise OSError(errno.EIO, os.strerror(errno.EIO))
-        self.f.seek(block_number * self.sector_size)
+        self.f.seek(block_number * self.sector_size + self.offset)
         data = self.f.read(number_of_blocks * self.sector_size)
         if len(data) != number_of_blocks * self.sector_size:
             raise OSError(errno.EIO, "Short PDP-10 block")
@@ -75,5 +75,5 @@ class BlockDevice36Bit(BlockDevice):
         if block_number < 0 or len(words) != self.words_per_block:
             raise OSError(errno.EIO, "Invalid PDP-10 block size")
         data = struct.pack(f"<{self.words_per_block}Q", *(word & WORD_MASK_36BIT for word in words))
-        self.f.seek(block_number * self.sector_size)
+        self.f.seek(block_number * self.sector_size + self.offset)
         self.f.write(data)

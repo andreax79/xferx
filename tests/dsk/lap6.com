@@ -1,0 +1,14 @@
+CREATE/ALLOCATE:512 lap6.linc
+INITIALIZE/LAP6 lap6.linc
+MOUNT/LAP6 pr: lap6.linc
+COPY/ASCII /TO-FORK:M data/1.txt pr:F1
+COPY/ASCII /TO-FORK:M data/2.txt pr:F2
+COPY/ASCII /TO-FORK:M data/5.txt pr:F5
+COPY/ASCII /TO-FORK:M data/10.txt pr:F10
+COPY/ASCII /TO-FORK:M data/20.txt pr:F20
+COPY/ASCII /TO-FORK:M data/50.txt pr:F50
+COPY /TO-FORK:B data/1.b12 pr:F1
+COPY /TO-FORK:B data/10.b12 pr:F10
+COPY /TO-FORK:B data/100.b12 pr:F100
+COPY /TO-FORK:B data/1000.b12 pr:F1000
+DIR pr:
