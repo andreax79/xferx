@@ -206,6 +206,31 @@ def encode_lap6_file(content: t.Union[bytes, bytearray], fork: str) -> t.List[in
     return words
 
 
+def decode_lap6_file(words: t.List[int], fork: str) -> bytes:
+    """
+    Decode the 12-bit words into file content for the specified fork type.
+
+    LAP6 Manuscript structure
+    - The first word contains the number 0o2065
+    - The second word contains 0o5712
+    - The last half-word of the manuscript contains 77
+
+    LAP6 HANDBOOK, Pag 39
+    https://bitsavers.org/pdf/washingtonUniversity/linc/LINC_Reference_Manuals/LINC_Vol_16_Section_3_LAP6_Handbook_May67.pdf
+    """
+    if fork == BINARY_FORK:
+        return from_12bit_words_to_bytes(words, IMAGE)
+
+    if len(words) < 2 or words[0] != 0o2065 or words[1] != 0o5712:
+        raise OSError(errno.EIO, "Invalid LAP6 manuscript: missing header")
+    data = from_12bit_words_to_bytes(words[2:], ASCII)
+    # Cut the data at the "\0" (0o77 converted to ASCII)
+    end_index = data.rfind(b"\0")
+    if end_index != -1:
+        data = data[:end_index]
+    return data
+
+
 def oct_dump(words: t.List[int], words_per_line: int = 8) -> None:
     """
     Display contents in octal
@@ -464,24 +489,8 @@ class LAP6Path(XFERXPath):
             words = []
             for i in range(f.length):
                 words.extend(f.read_words_block(i))
-        if file_mode == IMAGE:
-            return from_12bit_words_to_bytes(words, IMAGE)
-        # LAP6 Manuscript structure
-        # - The first word contains the number 0o2065
-        # - The second word contains 0o5712
-        # - The last half-word of the manuscript contains 77
-        # LAP6 HANDBOOK, Pag 39
-        # https://bitsavers.org/pdf/washingtonUniversity/linc/LINC_Reference_Manuals/LINC_Vol_16_Section_3_LAP6_Handbook_May67.pdf
-        if words[0] != 0o2065:
-            raise OSError(errno.EIO, f"Invalid LAP6 manuscript: first word is {words[0]:06o} instead of 02065")
-        if words[1] != 0o5712:
-            raise OSError(errno.EIO, f"Invalid LAP6 manuscript: second word is {words[1]:06o} instead of 05712")
-        data = from_12bit_words_to_bytes(words[2:], ASCII)
-        # Cut the data at the "\0" (0o77 converted to ASCII)
-        end_index = data.rfind(b"\0")
-        if end_index != -1:
-            data = data[:end_index]
-        return data
+        # Convert the 12-bit words to bytes according to the fork type
+        return decode_lap6_file(words, fork=fork)
 
     def examine(self) -> str:
         """
@@ -1018,11 +1027,7 @@ class LAP6Filesystem(AbstractFilesystem):
             for area_start, area_end in self.get_file_areas():
                 label = "Upper" if area_start >= self.index_block_number else "Lower"
                 sys.stdout.write(f"{label:<7} {area_start:>3}-{area_end:<3} (0o{area_start:>03o}-0o{area_end:>03o})\n")
-            sys.stdout.write(
-                "\n"
-                "Filename  Manuscript   Binary\n"
-                "--------  ----------   ------\n"
-            )
+            sys.stdout.write("\nFilename  Manuscript   Binary\n--------  ----------   ------\n")
             for entry in self.get_root().iterdir():
                 sys.stdout.write(f"{entry}\n")
 
