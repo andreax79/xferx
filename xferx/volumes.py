@@ -61,6 +61,8 @@ from .gzip_file import GzipFile
 from .fat.fat12 import FAT12Filesystem
 from .fat.fat8fs import FAT8Filesystem
 from .linc.lap6fs import LAP6Filesystem
+from .altair.fdosfs import FDOSFilesystem
+from .altair.fdos2fs import FDOS2Filesystem
 
 __all__ = [
     "Volumes",
@@ -106,6 +108,9 @@ FILESYSTEMS: t.Dict[str, t.Type[AbstractFilesystem]] = {
     "fat8": FAT8Filesystem,
     "fat12": FAT12Filesystem,
     "lap6": LAP6Filesystem,
+    "fdos": FDOSFilesystem,
+    "fdos-ii": FDOS2Filesystem,
+    "fdos-iii": FDOS2Filesystem,
 }
 
 

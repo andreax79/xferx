@@ -41,6 +41,9 @@ XFERX is an utility for transferring files between various file systems.
 | Microsoft Disk BASIC FAT8     | Yes               | Yes               | Yes               | No                | N/A               |
 | FAT12                         | Yes               | Yes               | Yes               | Yes               | Yes               |
 | LINC LAP-6                    | Yes               | Yes               | Yes               | Yes               | N/A               |
+| iCOM FDOS-I                   | Yes               | Yes               | Yes               | Yes               | N/A               |
+| iCOM FDOS-II/III              | Yes               | Yes               | Yes               | Yes               | N/A               |
+
 
 Installation
 ------------
@@ -318,3 +321,11 @@ LINC LAP6
 ---------
 
 * [LINC LAP6 Handbook](https://bitsavers.org/pdf/washingtonUniversity/linc/LINC_Reference_Manuals/LINC_Vol_16_Section_3_LAP6_Handbook_May67.pdf)
+
+iCOM FDOS
+---------
+
+* [Sphere Floppy Disk Operating System (FDOS)](https://sphere.computer/articles/sphere-fdos.html)
+* [EXORdisk MOTOROLA FLOPPY DISK SYSTEM USER'S GUIDE](https://deramp.com/downloads/altair/software/icom_floppy/FDOS/EDOS-I%20Manual.pdf)
+* [FDOS-II Operator's Manual](https://deramp.com/downloads/altair/software/icom_floppy/FDOS/FDOS-II%20Manual.pdf)
+* [FDOS-III Operator's Manual](https://deramp.com/downloads/altair/software/icom_floppy/FDOS/FDOS-III%20Manual.pdf)
